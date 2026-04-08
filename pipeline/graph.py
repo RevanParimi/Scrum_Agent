@@ -17,6 +17,7 @@ from langgraph.graph import StateGraph, END
 from pipeline.schema import ScrumState, empty_state
 from pipeline.ingest import make_ingest_node
 from pipeline.summarize import summarize_node
+from pipeline.story_splitter import story_splitter_node
 from pipeline.task_manager import make_task_node
 from pipeline.report_writer import make_report_node
 
@@ -43,16 +44,18 @@ def build_pipeline(
     """
     graph = StateGraph(ScrumState)
 
-    graph.add_node("ingest",    make_ingest_node(guild))
-    graph.add_node("summarize", summarize_node)
-    graph.add_node("tasks",     make_task_node(tasks_channel))
-    graph.add_node("report",    make_report_node(ai_report_channel, changelog_channel))
+    graph.add_node("ingest",         make_ingest_node(guild))
+    graph.add_node("summarize",      summarize_node)
+    graph.add_node("story_splitter", story_splitter_node)
+    graph.add_node("tasks",          make_task_node(tasks_channel))
+    graph.add_node("report",         make_report_node(ai_report_channel, changelog_channel))
 
     graph.set_entry_point("ingest")
-    graph.add_edge("ingest",    "summarize")
-    graph.add_edge("summarize", "tasks")
-    graph.add_edge("tasks",     "report")
-    graph.add_edge("report",    END)
+    graph.add_edge("ingest",         "summarize")
+    graph.add_edge("summarize",      "story_splitter")
+    graph.add_edge("story_splitter", "tasks")
+    graph.add_edge("tasks",          "report")
+    graph.add_edge("report",         END)
 
     return graph.compile()
 

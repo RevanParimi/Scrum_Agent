@@ -22,7 +22,10 @@ Quick reference for what each channel does, how the bot uses it, and what to pos
 ### `#sprint-discuss`
 - **Auto-threading:** Any message ≥ 20 characters gets its own thread automatically (24h archive).
 - **Best for:** Design submissions, peer reviews, open-ended discussions, sprint retrospectives.
-- **Peer review flow:** Post your design → bot creates a thread → teammates reply in thread.
+- **Peer review flow:** Post your design → bot creates a thread → teammates reply in thread → on next pipeline run, the bot reads the thread and acts as PO+SM:
+  - **Product Owner:** writes a user story (`As a user, I can...`) + acceptance criteria
+  - **Scrum Master:** breaks the story into 3–6 concrete subtasks with owners
+  - Subtasks appear in `#tasks` as individual threads alongside standup action items.
 
 ### `#standup`
 - **Read-only by bot** — ingested during daily pipeline (last 24h window).
@@ -56,6 +59,7 @@ Quick reference for what each channel does, how the bot uses it, and what to pos
 |---|---|
 | Submit a design for peer review | `#sprint-discuss` |
 | Review someone else's design | Reply in their `#sprint-discuss` thread |
+| See user stories generated from a design | `#tasks` — subtasks appear after next pipeline run |
 | Post your daily standup | `#standup` |
 | Report a blocker | `#blockers` |
 | See all open tasks | `!tasks` in any channel, or browse `#tasks` threads |

@@ -157,11 +157,19 @@ def make_task_node(tasks_channel: discord.TextChannel):
         sprint_data = load_sprint_state()
         existing_tasks: list[TaskItem] = sprint_data.get("tasks", [])
 
-        # Extract new action items via Claude
+        # Extract action items from standup/blockers summary
         raw_items = await extract_action_items(
             state.get("summary", ""),
             state.get("raw_messages", {}),
         )
+
+        # Merge subtasks from user stories (PO+SM split from #sprint-discuss)
+        for story in state.get("user_stories", []):
+            for subtask in story.get("subtasks", []):
+                raw_items.append({
+                    "title": subtask.get("title", "Untitled subtask"),
+                    "owner": subtask.get("owner", "unassigned"),
+                })
 
         new_tasks: list[TaskItem] = []
         for item in raw_items:

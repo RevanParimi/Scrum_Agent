@@ -16,6 +16,13 @@ class TaskItem(TypedDict):
     created_date: str        # ISO date string
 
 
+class UserStory(TypedDict):
+    title: str               # "As a [user], I can [action] so that [value]"
+    source: str              # "sprint-discuss/<thread-name>"
+    acceptance_criteria: list[str]
+    subtasks: list[dict]     # [{"title": str, "owner": str}]
+
+
 class ScrumState(TypedDict):
     # --- Ingest ---
     raw_messages: dict[str, list[str]]   # {"channel/thread": ["msg1", "msg2"]}
@@ -25,6 +32,9 @@ class ScrumState(TypedDict):
     summary: str                         # free-text digest from Claude
     decisions: list[str]                 # bullet list of locked decisions
     blockers: list[str]                  # flagged blockers
+
+    # --- Story splitting (PO + SM) ---
+    user_stories: list[UserStory]        # stories extracted from #sprint-discuss
 
     # --- Tasks ---
     tasks: list[TaskItem]                # current sprint task list
@@ -43,6 +53,7 @@ def empty_state(fetch_since_hours: int = 24) -> ScrumState:
         summary="",
         decisions=[],
         blockers=[],
+        user_stories=[],
         tasks=[],
         new_tasks=[],
         report_md="",

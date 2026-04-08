@@ -6,17 +6,18 @@ An AI-powered Discord bot that acts as an automated Scrum Master. It monitors te
 
 ## How It Works
 
-The bot runs a **4-node LangGraph pipeline** triggered on a schedule or on demand:
+The bot runs a **5-node LangGraph pipeline** triggered on a schedule or on demand:
 
 ```
-ingest → summarize → task_manager → report_writer → END
+ingest → summarize → story_splitter → task_manager → report_writer → END
 ```
 
 | Node | File | What it does |
 |---|---|---|
 | **ingest** | `pipeline/ingest.py` | Fetches recent messages from watched Discord channels and their active threads |
 | **summarize** | `pipeline/summarize.py` | Sends raw messages to Claude (Sonnet) and extracts `summary`, `decisions`, `blockers` as JSON |
-| **task_manager** | `pipeline/task_manager.py` | Uses Claude (Haiku) to extract action items, creates Discord task threads, persists to `state/sprint_state.json` |
+| **story_splitter** | `pipeline/story_splitter.py` | Reads `#sprint-discuss` threads; acts as PO (writes user stories + acceptance criteria) and SM (breaks each story into subtasks) |
+| **task_manager** | `pipeline/task_manager.py` | Merges story subtasks with standup action items, creates Discord task threads, persists to `state/sprint_state.json` |
 | **report_writer** | `pipeline/report_writer.py` | Builds a Markdown report, appends to `TEAM_LOG.md`, commits + pushes via Git, posts to Discord |
 
 ---
@@ -35,14 +36,16 @@ discord-scrum-master/
 ├── pipeline/
 │   ├── __init__.py
 │   ├── graph.py             # LangGraph assembly and pipeline runners
-│   ├── schema.py            # ScrumState and TaskItem TypedDicts
+│   ├── schema.py            # ScrumState, TaskItem, UserStory TypedDicts
 │   ├── ingest.py            # Node 1: fetch Discord messages
 │   ├── summarize.py         # Node 2: Claude summarization
-│   ├── task_manager.py      # Node 3: task extraction + thread creation
-│   └── report_writer.py     # Node 4: report generation + Git + Discord
+│   ├── story_splitter.py    # Node 3: PO+SM story splitting from #sprint-discuss
+│   ├── task_manager.py      # Node 4: task extraction + thread creation
+│   └── report_writer.py     # Node 5: report generation + Git + Discord
 │
 ├── prompts/
-│   └── scrum_master.md      # System prompt for Claude
+│   ├── scrum_master.md      # System prompt for summarization
+│   └── story_splitter.md    # System prompt for PO+SM story splitting
 │
 └── state/
     └── sprint_state.json    # Persistent task + sprint state (JSON file)
@@ -178,11 +181,23 @@ class ScrumState(TypedDict):
     decisions: list[str]
     blockers: list[str]
 
+    user_stories: list[UserStory]       # stories extracted from #sprint-discuss
+
     tasks: list[TaskItem]               # cumulative sprint tasks
     new_tasks: list[TaskItem]           # tasks created this run
 
     report_md: str                      # full Markdown for TEAM_LOG.md
     report_date: str                    # ISO date string
+```
+
+### `UserStory`
+
+```python
+class UserStory(TypedDict):
+    title: str               # "As a [user], I can [action] so that [value]"
+    source: str              # "sprint-discuss/<thread-name>"
+    acceptance_criteria: list[str]
+    subtasks: list[dict]     # [{"title": str, "owner": str}]
 ```
 
 ### `TaskItem`
@@ -214,17 +229,20 @@ class TaskItem(TypedDict):
 
 ## AI Configuration
 
-Two Claude models are used depending on the task:
+Two Claude models and one Groq model are used depending on the task:
 
 | Node | Model | Reason |
 |---|---|---|
 | `summarize.py` | `claude-sonnet-4-6` | Full analysis, nuanced reasoning |
-| `task_manager.py` | `claude-haiku-4-5-20251001` | Fast, cheap extraction |
+| `story_splitter.py` | `llama-3.3-70b-versatile` (Groq) | Fast PO+SM story extraction |
+| `task_manager.py` | `llama-3.3-70b-versatile` (Groq) | Fast, cheap action item extraction |
 
-Both use `ChatAnthropic` from `langchain-anthropic`. The system prompt lives in `prompts/scrum_master.md`.
+`summarize.py` uses `ChatAnthropic` from `langchain-anthropic`. `story_splitter.py` and `task_manager.py` use `ChatGroq` from `langchain-groq`.
 
-Token limits: 2048 max tokens for summarization, 1024 for task extraction.
-Context cap: raw messages are truncated at 60,000 characters before being sent to Claude.
+System prompts: `prompts/scrum_master.md` (summarization), `prompts/story_splitter.md` (PO+SM splitting).
+
+Token limits: 2048 max tokens for summarization and story splitting, 1024 for task extraction.
+Context cap: raw messages are truncated at 60,000 characters before being sent to the model.
 
 ---
 
