@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//e/AI projects/**)",
+      "Bash(grep -r \"git_intel\\\\|git-intel\\\\|GitIntel\\\\|git_intelligence\\\\|commits\\\\|No commits\" 'e:/AI projects/Computer AI/' --include=*.py -l)",
+      "Bash(grep -rn \"git\\\\|commit\\\\|branch\" 'e:/AI projects/Computer AI/ui/frontend/src/' --include=*.tsx --include=*.ts --include=*.jsx --include=*.js -l)",
+      "Bash(grep -rn \"git/info\\\\|git/branches\\\\|git/commits\\\\|router.*git\\\\|git.*router\" 'e:/AI projects/Computer AI/' --include=*.py)",
+      "Bash(.ai/Scripts/python -c \":*)",
+      "Bash(curl -s http://localhost:8000/git/info)",
+      "Bash(curl -s http://localhost:8000/git/branches)",
+      "Bash(curl -s \"http://localhost:8000/git/commits?branch=main&limit=5\")"
+    ],
+    "additionalDirectories": [
+      "e:\\AI projects\\Computer AI\\api"
+    ]
+  }
+}

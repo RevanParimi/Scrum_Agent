@@ -101,17 +101,45 @@ TIMEZONE=Asia/Kolkata   # Scheduler timezone (IANA format)
 
 ### 3. Discord bot permissions required
 
-- Read Message History
-- Send Messages
-- Create Public Threads
-- Manage Messages (for `!report` and `!sprint` commands)
-- Message Content Intent must be enabled in the Developer Portal
+In the [Discord Developer Portal](https://discord.com/developers/applications) → your app → **OAuth2 → URL Generator**:
 
-### 4. Run
+- Scopes: `bot`
+- Bot Permissions to check:
+  - **General:** View Channels
+  - **Text:** Send Messages, Create Public Threads, Send Messages in Threads, Manage Messages, Manage Threads, Embed Links, Read Message History
+
+Also under **Bot → Privileged Gateway Intents**, enable:
+- **Message Content Intent** (required to read message text)
+
+Generate the invite URL and open it in a browser to add the bot to your server.
+
+> `Attach Files` is **not** needed — the bot only sends text. Add it later if you introduce file exports.
+
+### 4. Verify Guild ID
+
+After adding the bot to your server, confirm `DISCORD_GUILD_ID` in `.env` matches the correct server:
+
+- Discord → right-click your **server icon** → **Copy Server ID**
+- Requires **Developer Mode** enabled: Settings → Advanced → Developer Mode
+
+If the bot starts but logs `Guild not found`, this is the cause.
+
+### 5. Run
 
 ```bash
 python bot.py
 ```
+
+Expected startup output:
+```
+Logged in as YourBot#1234 | Guild: YourServerName
+  #tasks       → <TextChannel id=... name='tasks'>
+  #ai-report   → <TextChannel id=... name='ai-report'>
+  #changelog   → <TextChannel id=... name='changelog'>
+APScheduler started
+```
+
+If any channel shows as `None`, the corresponding `CHANNEL_*` ID in `.env` is wrong or unset.
 
 ---
 

@@ -1,0 +1,69 @@
+name: Scrum Daily Report
+
+on:
+  schedule:
+    - cron: '30 3 * * *'      # 9:00 AM IST (Mon–Sun)
+    - cron: '30 12 * * 5'     # 6:00 PM IST on Fridays (weekly sprint)
+  workflow_dispatch:           # allow manual trigger from GitHub UI
+    inputs:
+      weekly:
+        description: 'Run as weekly report (7 days)?'
+        required: false
+        default: 'false'
+
+jobs:
+  run-pipeline:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run daily report
+        if: github.event_name == 'schedule' && github.event.schedule == '30 3 * * *' || (github.event_name == 'workflow_dispatch' && github.event.inputs.weekly == 'false')
+        env:
+          DISCORD_TOKEN:          ${{ secrets.DISCORD_TOKEN }}
+          DISCORD_GUILD_ID:       ${{ secrets.DISCORD_GUILD_ID }}
+          GROQ_API_KEY:           ${{ secrets.GROQ_API_KEY }}
+          CHANNEL_SPRINT_DISCUSS: ${{ secrets.CHANNEL_SPRINT_DISCUSS }}
+          CHANNEL_STANDUP:        ${{ secrets.CHANNEL_STANDUP }}
+          CHANNEL_TASKS:          ${{ secrets.CHANNEL_TASKS }}
+          CHANNEL_BLOCKERS:       ${{ secrets.CHANNEL_BLOCKERS }}
+          CHANNEL_AI_REPORT:      ${{ secrets.CHANNEL_AI_REPORT }}
+          CHANNEL_CHANGELOG:      ${{ secrets.CHANNEL_CHANGELOG }}
+          TEAM_LOG_REPO_PATH:     ${{ github.workspace }}
+          TIMEZONE:               Asia/Kolkata
+        run: python run.py
+
+      - name: Run weekly report
+        if: github.event_name == 'schedule' && github.event.schedule == '30 12 * * 5' || (github.event_name == 'workflow_dispatch' && github.event.inputs.weekly == 'true')
+        env:
+          DISCORD_TOKEN:          ${{ secrets.DISCORD_TOKEN }}
+          DISCORD_GUILD_ID:       ${{ secrets.DISCORD_GUILD_ID }}
+          GROQ_API_KEY:           ${{ secrets.GROQ_API_KEY }}
+          CHANNEL_SPRINT_DISCUSS: ${{ secrets.CHANNEL_SPRINT_DISCUSS }}
+          CHANNEL_STANDUP:        ${{ secrets.CHANNEL_STANDUP }}
+          CHANNEL_TASKS:          ${{ secrets.CHANNEL_TASKS }}
+          CHANNEL_BLOCKERS:       ${{ secrets.CHANNEL_BLOCKERS }}
+          CHANNEL_AI_REPORT:      ${{ secrets.CHANNEL_AI_REPORT }}
+          CHANNEL_CHANGELOG:      ${{ secrets.CHANNEL_CHANGELOG }}
+          TEAM_LOG_REPO_PATH:     ${{ github.workspace }}
+          TIMEZONE:               Asia/Kolkata
+        run: python run.py --weekly
+
+      - name: Commit TEAM_LOG.md
+        run: |
+          git config user.name "scrum-bot"
+          git config user.email "scrum-bot@users.noreply.github.com"
+          git add TEAM_LOG.md state/sprint_state.json || true
+          git diff --staged --quiet || git commit -m "scrum: report $(date +%Y-%m-%d)"
+          git push
