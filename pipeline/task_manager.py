@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Optional
 
 import discord
-from langchain_anthropic import ChatAnthropic
+#from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from pipeline.schema import ScrumState, TaskItem
