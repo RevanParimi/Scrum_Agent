@@ -35,6 +35,54 @@
       "status": "open",
       "thread_id": 1492035688785252434,
       "created_date": "2026-04-10"
+    },
+    {
+      "id": "T3",
+      "title": "Ignore alternate signals",
+      "owner": "unassigned",
+      "status": "open",
+      "thread_id": 1492160722011033781,
+      "created_date": "2026-04-10"
+    },
+    {
+      "id": "T4",
+      "title": "Verify alternate signals",
+      "owner": "Siva Sanka",
+      "status": "open",
+      "thread_id": 1492160725336985684,
+      "created_date": "2026-04-10"
+    },
+    {
+      "id": "T5",
+      "title": "Design Agent 01 database schema",
+      "owner": "unassigned",
+      "status": "open",
+      "thread_id": 1492160728495296576,
+      "created_date": "2026-04-10"
+    },
+    {
+      "id": "T6",
+      "title": "Implement NSE/BSE API integration",
+      "owner": "unassigned",
+      "status": "open",
+      "thread_id": 1492160732232417434,
+      "created_date": "2026-04-10"
+    },
+    {
+      "id": "T7",
+      "title": "Integrate AMFI website data",
+      "owner": "unassigned",
+      "status": "open",
+      "thread_id": 1492160736745623653,
+      "created_date": "2026-04-10"
+    },
+    {
+      "id": "T8",
+      "title": "Build broker API connectors",
+      "owner": "unassigned",
+      "status": "open",
+      "thread_id": 1492160740847517697,
+      "created_date": "2026-04-10"
     }
   ],
   "last_report_date": null,
