@@ -71,36 +71,39 @@ async def main(since_hours: int) -> None:
 
     client = discord.Client(intents=intents)
 
-    async with client:
-        await client.login(os.environ["DISCORD_TOKEN"])
-        await client.connect(reconnect=False)  # connects and fetches guilds
+    @client.event
+    async def on_ready():
+        try:
+            guild_id = int(os.environ["DISCORD_GUILD_ID"])
+            guild = client.get_guild(guild_id)
 
-        guild_id = int(os.environ["DISCORD_GUILD_ID"])
-        guild = client.get_guild(guild_id)
+            if not guild:
+                logger.critical("Guild %d not found. Check DISCORD_GUILD_ID.", guild_id)
+                return
 
-        if not guild:
-            logger.critical("Guild %d not found. Check DISCORD_GUILD_ID.", guild_id)
-            return
+            ch_tasks     = get_channel(guild, "tasks")
+            ch_ai_report = get_channel(guild, "ai-report")
+            ch_changelog = get_channel(guild, "changelog")
 
-        ch_tasks     = get_channel(guild, "tasks")
-        ch_ai_report = get_channel(guild, "ai-report")
-        ch_changelog = get_channel(guild, "changelog")
+            if not ch_tasks or not ch_ai_report:
+                logger.critical("Could not resolve #tasks or #ai-report channels.")
+                return
 
-        if not ch_tasks or not ch_ai_report:
-            logger.critical("Could not resolve #tasks or #ai-report channels.")
-            return
+            logger.info("Guild: %s | Running pipeline for last %dh", guild.name, since_hours)
 
-        logger.info("Guild: %s | Running pipeline for last %dh", guild.name, since_hours)
+            await run_daily_pipeline(
+                guild=guild,
+                tasks_channel=ch_tasks,
+                ai_report_channel=ch_ai_report,
+                changelog_channel=ch_changelog,
+                since_hours=since_hours,
+            )
 
-        await run_daily_pipeline(
-            guild=guild,
-            tasks_channel=ch_tasks,
-            ai_report_channel=ch_ai_report,
-            changelog_channel=ch_changelog,
-            since_hours=since_hours,
-        )
+            logger.info("Pipeline complete. Exiting.")
+        finally:
+            await client.close()
 
-        logger.info("Pipeline complete. Exiting.")
+    await client.start(os.environ["DISCORD_TOKEN"])
 
 
 if __name__ == "__main__":

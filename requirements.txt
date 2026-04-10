@@ -8,6 +8,7 @@ APScheduler==3.10.4
 python-dotenv==1.0.1
 aiofiles==23.2.1
 gitpython==3.1.43
+PyNaCl==1.6.2
 
 # LangGraph + LangChain
 langchain==0.2.6
