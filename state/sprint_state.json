@@ -27,6 +27,14 @@
       "status": "open",
       "thread_id": 1491986611662229646,
       "created_date": "2026-04-10"
+    },
+    {
+      "id": "T2",
+      "title": "Verify alternate signals",
+      "owner": "Siva Sanka",
+      "status": "open",
+      "thread_id": 1492035688785252434,
+      "created_date": "2026-04-10"
     }
   ],
   "last_report_date": null,
