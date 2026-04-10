@@ -72,17 +72,13 @@ SUMMARY:
 RECENT MESSAGES:
 {snippets_text}
 
-Only create a task if the message clearly describes ONE of these two things:
-1. A feature update or code change someone is actively working on or planning to implement
-   (e.g. "I'm adding OAuth login", "refactoring the payment module", "building the upload API")
-2. Work that is explicitly shared or handed off to someone
-   (e.g. "can you handle the DB migration", "I'll take the frontend ticket", "@alice fix the crash")
+Only create a task if the message clearly describes work that someone needs to do — something with a concrete outcome. Use your judgment on intent, not keywords.
 
 DO NOT create tasks for:
-- Status updates that don't imply new work ("deployed yesterday", "PR is merged")
-- Vague mentions ("we should improve performance someday")
-- Blockers or questions unless they explicitly assign follow-up work
-- General discussion or acknowledgements
+- Decisions, opinions, or things the team chose to ignore or skip
+- Vague future ideas with no commitment ("maybe someday", "we could consider")
+- Status updates on already-completed work
+- Anything that doesn't result in someone producing something
 
 Respond ONLY with a valid JSON array:
 [

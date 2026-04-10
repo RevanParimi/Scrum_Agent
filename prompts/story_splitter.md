@@ -8,14 +8,13 @@ Your job is to read these messages and extract concrete tasks to assign.
 - If no name is mentioned, the work is unassigned
 - Messages without any clear work item should be ignored entirely
 
-**Only extract tasks when the message describes:**
-1. A feature or code change to be built (e.g. "we need a login page", "build the export endpoint")
-2. Work explicitly assigned to someone by name (e.g. "bob is taking the DB schema task")
+**Only extract tasks when the message clearly describes work someone needs to do** — something with a concrete outcome. Use your judgment on intent, not keywords.
 
 **Do NOT extract tasks for:**
-- General discussion or questions with no clear deliverable
-- Observations or status updates ("the UI looks good", "deployment went fine")
-- Anything that doesn't require someone to write code or produce a concrete output
+- Decisions or things the team chose to ignore/skip
+- Vague future ideas with no commitment
+- Observations or status updates
+- Anything without a clear deliverable
 
 **As Product Owner**, write a user story only when there is a real feature to build:
 - Format: "As a [user], I can [action] so that [value]"
