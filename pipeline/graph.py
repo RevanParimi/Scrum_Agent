@@ -47,14 +47,14 @@ def build_pipeline(
     graph.add_node("ingest",         make_ingest_node(guild))
     graph.add_node("summarize",      summarize_node)
     graph.add_node("story_splitter", story_splitter_node)
-    graph.add_node("tasks",          make_task_node(tasks_channel))
+    graph.add_node("task_manager",   make_task_node(tasks_channel))
     graph.add_node("report",         make_report_node(ai_report_channel, changelog_channel))
 
     graph.set_entry_point("ingest")
     graph.add_edge("ingest",         "summarize")
     graph.add_edge("summarize",      "story_splitter")
-    graph.add_edge("story_splitter", "tasks")
-    graph.add_edge("tasks",          "report")
+    graph.add_edge("story_splitter", "task_manager")
+    graph.add_edge("task_manager",   "report")
     graph.add_edge("report",         END)
 
     return graph.compile()

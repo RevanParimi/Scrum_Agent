@@ -3,11 +3,32 @@
   "sprint_start": "2026-03-29",
   "sprint_end": "2026-04-04",
   "upcoming_sprints": [
-    { "sprint_number": 2, "sprint_start": "2026-04-05", "sprint_end": "2026-04-11" },
-    { "sprint_number": 3, "sprint_start": "2026-04-12", "sprint_end": "2026-04-18" },
-    { "sprint_number": 4, "sprint_start": "2026-04-19", "sprint_end": "2026-04-25" }
+    {
+      "sprint_number": 2,
+      "sprint_start": "2026-04-05",
+      "sprint_end": "2026-04-11"
+    },
+    {
+      "sprint_number": 3,
+      "sprint_start": "2026-04-12",
+      "sprint_end": "2026-04-18"
+    },
+    {
+      "sprint_number": 4,
+      "sprint_start": "2026-04-19",
+      "sprint_end": "2026-04-25"
+    }
   ],
-  "tasks": [],
+  "tasks": [
+    {
+      "id": "T1",
+      "title": "Ignore alternate signals",
+      "owner": "unassigned",
+      "status": "open",
+      "thread_id": 1491986611662229646,
+      "created_date": "2026-04-10"
+    }
+  ],
   "last_report_date": null,
   "last_ingested_message_ids": {}
 }

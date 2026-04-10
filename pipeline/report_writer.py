@@ -130,8 +130,11 @@ async def post_to_discord(
     report_date: str,
     ai_report_channel: discord.TextChannel,
     changelog_channel: Optional[discord.TextChannel] = None,
+    state_snapshot: Optional[dict] = None,
 ) -> None:
     """Post the full report to #ai-report and a short changelog note to #changelog."""
+    state_snapshot = state_snapshot or {}
+
     header = f"**Sprint Report — {report_date}**\n\n"
     full_text = header + report_md
 
@@ -140,13 +143,27 @@ async def post_to_discord(
     logger.info("Posted report to #ai-report")
 
     if changelog_channel:
-        changelog_note = (
-            f"**[{report_date}]** Scrum report generated. "
-            f"See #{ai_report_channel.name} for full details. "
-            f"TEAM_LOG.md updated."
-        )
-        await changelog_channel.send(changelog_note)
-        logger.info("Posted changelog note")
+        new_tasks: list[TaskItem] = state_snapshot.get("new_tasks", [])
+        blockers: list[str] = state_snapshot.get("blockers", [])
+        decisions: list[str] = state_snapshot.get("decisions", [])
+
+        parts = []
+        if new_tasks:
+            task_lines = "\n".join(f"  • `{t['id']}` {t['title']} — {t['owner']}" for t in new_tasks)
+            parts.append(f"**New tasks ({len(new_tasks)}):**\n{task_lines}")
+        if decisions:
+            dec_lines = "\n".join(f"  • {d}" for d in decisions)
+            parts.append(f"**Decisions:**\n{dec_lines}")
+        if blockers:
+            blk_lines = "\n".join(f"  • {b}" for b in blockers)
+            parts.append(f"**Blockers:**\n{blk_lines}")
+
+        if parts:
+            changelog_note = f"**[{report_date}]** Sprint update\n\n" + "\n\n".join(parts)
+            await changelog_channel.send(changelog_note)
+            logger.info("Posted changelog note")
+        else:
+            logger.info("Nothing meaningful to post to #changelog — skipping")
 
 
 # ── LangGraph node factory ─────────────────────────────────────────────────────
@@ -172,7 +189,7 @@ def make_report_node(
         git_commit_and_push(report_date)
 
         # 3. Post to Discord
-        await post_to_discord(report_md, report_date, ai_report_channel, changelog_channel)
+        await post_to_discord(report_md, report_date, ai_report_channel, changelog_channel, state_snapshot=state)
 
         return {**state, "report_md": report_md}
 

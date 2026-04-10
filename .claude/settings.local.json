@@ -8,7 +8,9 @@
       "Bash(.ai/Scripts/python -c \":*)",
       "Bash(curl -s http://localhost:8000/git/info)",
       "Bash(curl -s http://localhost:8000/git/branches)",
-      "Bash(curl -s \"http://localhost:8000/git/commits?branch=main&limit=5\")"
+      "Bash(curl -s \"http://localhost:8000/git/commits?branch=main&limit=5\")",
+      "Bash(python run.py)",
+      "Bash(python -c ':*)"
     ],
     "additionalDirectories": [
       "e:\\AI projects\\Computer AI\\api"

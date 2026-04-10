@@ -9,7 +9,7 @@ Persists task state to state/sprint_state.json.
 import json
 import logging
 import os
-import uuid
+
 from datetime import date
 from pathlib import Path
 from typing import Optional
@@ -60,11 +60,11 @@ async def extract_action_items(summary: str, raw_messages: dict[str, list[str]])
     Returns a list of {title, owner} dicts.
     """
     recent_snippets = []
-    for src, msgs in raw_messages.items():
+    for _, msgs in raw_messages.items():
         recent_snippets.extend(msgs[-5:])   # last 5 msgs per source
     snippets_text = "\n".join(recent_snippets[-40:])  # cap at 40 lines
 
-    prompt = f"""You are extracting action items from a scrum standup summary.
+    prompt = f"""You are a scrum master extracting tasks from standup and blocker messages.
 
 SUMMARY:
 {summary}
@@ -72,18 +72,25 @@ SUMMARY:
 RECENT MESSAGES:
 {snippets_text}
 
-Extract all clear action items or tasks that someone needs to do.
-Respond ONLY with valid JSON array:
+Only create a task if the message clearly describes ONE of these two things:
+1. A feature update or code change someone is actively working on or planning to implement
+   (e.g. "I'm adding OAuth login", "refactoring the payment module", "building the upload API")
+2. Work that is explicitly shared or handed off to someone
+   (e.g. "can you handle the DB migration", "I'll take the frontend ticket", "@alice fix the crash")
+
+DO NOT create tasks for:
+- Status updates that don't imply new work ("deployed yesterday", "PR is merged")
+- Vague mentions ("we should improve performance someday")
+- Blockers or questions unless they explicitly assign follow-up work
+- General discussion or acknowledgements
+
+Respond ONLY with a valid JSON array:
 [
-  {{"title": "short imperative task title", "owner": "discord_username or unassigned"}},
+  {{"title": "short imperative task title (≤10 words)", "owner": "discord_username or unassigned"}},
   ...
 ]
 
-Rules:
-- title must be ≤ 10 words, imperative (e.g. "Fix OAuth refresh token bug")
-- owner is the Discord username if explicitly mentioned, else "unassigned"
-- Skip vague items, only concrete work items
-- Return [] if no clear action items exist
+Return [] if nothing clearly qualifies.
 """
 
     #llm = ChatAnthropic(
@@ -125,17 +132,16 @@ async def create_task_thread(
     Returns the thread ID or None on failure.
     """
     try:
+        owner_mention = f"`{task['owner']}`" if task['owner'] != "unassigned" else "unassigned"
         body = (
             f"**{task['id']} — {task['title']}**\n"
-            f"Owner: `{task['owner']}`\n"
-            f"Status: `{task['status']}`\n"
-            f"Created: {task['created_date']}"
+            f"Owner: {owner_mention}  |  Status: `{task['status']}`  |  Created: {task['created_date']}"
         )
         msg = await tasks_channel.send(body)
         thread = await msg.create_thread(name=f"{task['id']} {task['title'][:40]}")
         await thread.send(
-            f"Thread opened for **{task['id']}**. "
-            f"Drop updates here. Owner: `{task['owner']}`"
+            f"Task **{task['id']}** opened. Drop progress updates here.\n"
+            f"Owner: {owner_mention} — mark done by replying `done` or updating status."
         )
         logger.info("Created task thread %s: %s", task["id"], task["title"])
         return thread.id
