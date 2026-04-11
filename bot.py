@@ -7,12 +7,18 @@ Responsibilities:
   3. Start APScheduler once bot is ready
   4. Handle on-demand !report and !sprint commands
   5. Auto-create threads in #sprint-discuss on new topic messages
+  6. Participate in sprint-discuss as a conversational scrum master:
+       - Read thread history before deciding how to respond
+       - Ask clarifying questions, propose tasks, answer questions
+       - Confirm task creation through natural conversation
+       - Extract tasks from shared text files
 """
 
 import asyncio
 import logging
 import os
 import sys
+from datetime import date
 from typing import Optional
 
 import discord
@@ -20,6 +26,13 @@ from discord.ext import commands
 from dotenv import load_dotenv
 
 from pipeline.graph import run_daily_pipeline, run_sprint_report
+from pipeline.thread_agent import run_thread_agent
+from pipeline.task_manager import (
+    load_sprint_state,
+    save_sprint_state,
+    next_task_id,
+    create_task_thread,
+)
 from scheduler import create_scheduler
 
 load_dotenv()
@@ -48,32 +61,41 @@ CHANNEL_IDS = {
     "changelog":      int(os.environ.get("CHANNEL_CHANGELOG",      0)),
 }
 
+# Text file extensions the bot will read from attachments
+READABLE_EXTENSIONS = {
+    ".txt", ".md", ".py", ".js", ".ts", ".json", ".csv",
+    ".yaml", ".yml", ".log", ".xml", ".html", ".sh", ".toml",
+}
+
 
 # ── Bot setup ─────────────────────────────────────────────────────────────────
 
 intents = discord.Intents.default()
-intents.message_content = True   # required to read message text
+intents.message_content = True
 intents.guilds = True
 intents.guild_messages = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# Resolved at on_ready; used by pipeline and scheduler
-guild_ref: Optional[discord.Guild]           = None
-ch_tasks: Optional[discord.TextChannel]      = None
-ch_ai_report: Optional[discord.TextChannel]  = None
-ch_changelog: Optional[discord.TextChannel]  = None
+# Resolved at on_ready
+guild_ref: Optional[discord.Guild]               = None
+ch_tasks: Optional[discord.TextChannel]          = None
+ch_ai_report: Optional[discord.TextChannel]      = None
+ch_changelog: Optional[discord.TextChannel]      = None
 ch_sprint_discuss: Optional[discord.TextChannel] = None
+
+# Pending task confirmations keyed by channel/thread ID.
+# Stored as: { channel_id: {"task_title": str, "task_owner": str} }
+# Persisted in sprint_state.json so they survive bot restarts.
+pending_confirmations: dict[int, dict] = {}
 
 
 def get_channel(name: str) -> Optional[discord.TextChannel]:
-    """Resolve a channel by name from the guild, using env ID as priority."""
     ch_id = CHANNEL_IDS.get(name, 0)
     if ch_id and guild_ref:
         ch = guild_ref.get_channel(ch_id)
         if ch:
             return ch
-    # Fallback: match by name
     if guild_ref:
         for ch in guild_ref.text_channels:
             if ch.name == name:
@@ -81,7 +103,96 @@ def get_channel(name: str) -> Optional[discord.TextChannel]:
     return None
 
 
-# ── Pipeline helpers (bound to resolved channels) ─────────────────────────────
+# ── Pending confirmation persistence ──────────────────────────────────────────
+
+def _load_pending_confirmations() -> None:
+    global pending_confirmations
+    data = load_sprint_state()
+    raw = data.get("pending_confirmations", {})
+    pending_confirmations = {int(k): v for k, v in raw.items()}
+    if pending_confirmations:
+        logger.info("Restored %d pending confirmations", len(pending_confirmations))
+
+
+def _save_pending_confirmations() -> None:
+    data = load_sprint_state()
+    data["pending_confirmations"] = {str(k): v for k, v in pending_confirmations.items()}
+    save_sprint_state(data)
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+async def fetch_thread_history(
+    channel: discord.abc.Messageable,
+    exclude_message_id: int,
+    limit: int = 15,
+) -> list[str]:
+    """
+    Fetch recent messages from a channel/thread for context, excluding the
+    current message. Returns formatted strings oldest-first.
+    """
+    history = []
+    async for msg in channel.history(limit=limit + 1, oldest_first=False):
+        if msg.id == exclude_message_id:
+            continue
+        name = "🤖 Scrum Bot" if msg.author.bot else msg.author.display_name
+        # Include attachment filenames in history so agent knows files were shared
+        attachment_note = ""
+        if msg.attachments:
+            names = ", ".join(a.filename for a in msg.attachments)
+            attachment_note = f" [attached: {names}]"
+        history.append(f"[{name}]: {msg.content}{attachment_note}")
+    history.reverse()
+    return history
+
+
+async def extract_attachment_text(message: discord.Message) -> Optional[str]:
+    """Download and decode the first readable text attachment, if any."""
+    for attachment in message.attachments:
+        suffix = "." + attachment.filename.rsplit(".", 1)[-1].lower() if "." in attachment.filename else ""
+        if suffix in READABLE_EXTENSIONS:
+            try:
+                data = await attachment.read()
+                text = data.decode("utf-8", errors="replace")
+                logger.info("Read attachment: %s (%d chars)", attachment.filename, len(text))
+                return f"[{attachment.filename}]\n{text}"
+            except Exception as exc:
+                logger.warning("Could not read attachment %s: %s", attachment.filename, exc)
+    return None
+
+
+async def create_confirmed_task(confirmation: dict, channel: discord.abc.Messageable) -> str:
+    """
+    Create a task thread from a confirmed task dict and save it to sprint state.
+    Returns the new task ID.
+    """
+    sprint_data = load_sprint_state()
+    existing = sprint_data.get("tasks", [])
+
+    task_id = next_task_id(existing)
+    task = {
+        "id": task_id,
+        "title": confirmation["task_title"],
+        "owner": confirmation["task_owner"],
+        "status": "open",
+        "thread_id": None,
+        "created_date": str(date.today()),
+        "report_included": False,
+    }
+
+    if ch_tasks:
+        thread_id = await create_task_thread(ch_tasks, task)
+        task["thread_id"] = thread_id
+
+    existing.append(task)
+    sprint_data["tasks"] = existing
+    save_sprint_state(sprint_data)
+
+    logger.info("Task confirmed and created: %s — %s", task_id, task["title"])
+    return task_id
+
+
+# ── Pipeline helpers ───────────────────────────────────────────────────────────
 
 async def _run_daily():
     if not guild_ref or not ch_tasks or not ch_ai_report:
@@ -109,23 +220,24 @@ async def _run_weekly():
 async def on_ready():
     global guild_ref, ch_tasks, ch_ai_report, ch_changelog, ch_sprint_discuss
 
-    guild_ref       = bot.get_guild(GUILD_ID)
+    guild_ref         = bot.get_guild(GUILD_ID)
     if not guild_ref:
         logger.critical("Guild %d not found. Check DISCORD_GUILD_ID.", GUILD_ID)
         await bot.close()
         return
 
-    ch_tasks         = get_channel("tasks")
-    ch_ai_report     = get_channel("ai-report")
-    ch_changelog     = get_channel("changelog")
+    ch_tasks          = get_channel("tasks")
+    ch_ai_report      = get_channel("ai-report")
+    ch_changelog      = get_channel("changelog")
     ch_sprint_discuss = get_channel("sprint-discuss")
 
     logger.info("Logged in as %s | Guild: %s", bot.user, guild_ref.name)
-    logger.info("  #tasks       → %s", ch_tasks)
-    logger.info("  #ai-report   → %s", ch_ai_report)
-    logger.info("  #changelog   → %s", ch_changelog)
+    logger.info("  #tasks         → %s", ch_tasks)
+    logger.info("  #ai-report     → %s", ch_ai_report)
+    logger.info("  #sprint-discuss→ %s", ch_sprint_discuss)
 
-    # Start scheduler
+    _load_pending_confirmations()
+
     scheduler = create_scheduler(_run_daily, _run_weekly)
     scheduler.start()
     logger.info("APScheduler started")
@@ -133,29 +245,132 @@ async def on_ready():
 
 @bot.event
 async def on_message(message: discord.Message):
-    """Auto-create threads in #sprint-discuss for topic-starter messages."""
     if message.author.bot:
         return
 
-    # Auto-thread: if a message in #sprint-discuss has no thread yet and
-    # is long enough to be a topic (>= 20 chars), spin up a thread
-    if (
-        ch_sprint_discuss
-        and message.channel.id == ch_sprint_discuss.id
-        and not isinstance(message.channel, discord.Thread)
-        and len(message.content) >= 20
-    ):
+    # ── Determine if this is a sprint-discuss message ────────────────────────
+    is_sprint_discuss = False
+    if ch_sprint_discuss:
+        if message.channel.id == ch_sprint_discuss.id:
+            is_sprint_discuss = True
+        elif (
+            isinstance(message.channel, discord.Thread)
+            and message.channel.parent_id == ch_sprint_discuss.id
+        ):
+            is_sprint_discuss = True
+
+    # ── Auto-thread for main-channel messages ─────────────────────────────────
+    if is_sprint_discuss and not isinstance(message.channel, discord.Thread) and len(message.content) >= 20:
         try:
             thread_name = message.content[:50].strip().replace("\n", " ")
-            await message.create_thread(
-                name=thread_name,
-                auto_archive_duration=1440,  # archive after 24h of inactivity
-            )
+            await message.create_thread(name=thread_name, auto_archive_duration=1440)
             logger.info("Auto-created thread: %s", thread_name)
         except discord.HTTPException as exc:
             logger.warning("Failed to create auto-thread: %s", exc)
 
+    # ── Conversational agent ──────────────────────────────────────────────────
+    if is_sprint_discuss:
+        asyncio.create_task(_handle_sprint_discuss(message))
+
     await bot.process_commands(message)
+
+
+async def _handle_sprint_discuss(message: discord.Message) -> None:
+    """
+    Core conversational loop for #sprint-discuss.
+    Fetches thread context, runs the agent, and acts on the result.
+    """
+    channel_id = message.channel.id
+
+    # 1. Build context
+    thread_history   = await fetch_thread_history(message.channel, exclude_message_id=message.id)
+    attachment_text  = await extract_attachment_text(message)
+    sprint_data      = load_sprint_state()
+    pending          = pending_confirmations.get(channel_id)
+
+    # 2. Run agent
+    result = await run_thread_agent(
+        message_content=message.content,
+        author=message.author.display_name,
+        thread_history=thread_history,
+        sprint_tasks=sprint_data.get("tasks", []),
+        pending_confirmation=pending,
+        attachment_text=attachment_text,
+    )
+
+    action  = result.get("action", "silent")
+    reply   = result.get("message", "").strip()
+
+    # 3. Handle each action ────────────────────────────────────────────────────
+
+    if action == "silent":
+        return
+
+    elif action == "propose_task":
+        # Bot asks the team: "Should I track this as a task?"
+        if not reply:
+            return
+        try:
+            await message.reply(reply)
+            pending_confirmations[channel_id] = {
+                "task_title": result.get("task_title", "Unnamed task"),
+                "task_owner": result.get("task_owner", "unassigned"),
+            }
+            _save_pending_confirmations()
+        except discord.HTTPException as exc:
+            logger.warning("Failed to post task proposal: %s", exc)
+
+    elif action == "ask_clarification":
+        # Bot asks a clarifying question — no pending state change
+        if reply:
+            try:
+                await message.reply(reply)
+            except discord.HTTPException as exc:
+                logger.warning("Failed to post clarification: %s", exc)
+
+    elif action == "confirm_task":
+        # Team said yes — create the task
+        if pending:
+            try:
+                task_id = await create_confirmed_task(pending, message.channel)
+                del pending_confirmations[channel_id]
+                _save_pending_confirmations()
+
+                owner_display = (
+                    f"`{pending['task_owner']}`"
+                    if pending["task_owner"] != "unassigned"
+                    else "unassigned"
+                )
+                confirm_msg = (
+                    reply
+                    or f"Done — added **{task_id}: {pending['task_title']}** "
+                       f"(owner: {owner_display}). Thread created in <#{CHANNEL_IDS.get('tasks', 0)}>."
+                )
+                await message.reply(confirm_msg)
+            except Exception as exc:
+                logger.exception("Failed to create confirmed task: %s", exc)
+        else:
+            # No pending — agent misread; stay silent
+            logger.debug("confirm_task action with no pending confirmation — ignored")
+
+    elif action == "reject_task":
+        # Team said no — clear the pending and acknowledge briefly
+        if pending:
+            del pending_confirmations[channel_id]
+            _save_pending_confirmations()
+            if reply:
+                try:
+                    await message.reply(reply)
+                except discord.HTTPException:
+                    pass
+            logger.info("Task proposal rejected by team: %s", pending.get("task_title"))
+
+    elif action in ("answer_question", "note_decision"):
+        if reply:
+            try:
+                await message.reply(reply)
+            except discord.HTTPException as exc:
+                logger.warning("Failed to post agent reply: %s", exc)
 
 
 # ── Commands ──────────────────────────────────────────────────────────────────
@@ -163,8 +378,8 @@ async def on_message(message: discord.Message):
 @bot.command(name="report")
 @commands.has_permissions(manage_messages=True)
 async def cmd_report(ctx: commands.Context):
-    """!report — trigger an immediate daily digest (owner only)."""
-    await ctx.reply("Generating scrum report... this may take ~30 seconds.")
+    """!report — trigger an immediate daily digest."""
+    await ctx.reply("Generating scrum report… this may take ~30 seconds.")
     try:
         await _run_daily()
         await ctx.reply(f"Report complete. Check #{ch_ai_report.name if ch_ai_report else 'ai-report'}.")
@@ -176,8 +391,8 @@ async def cmd_report(ctx: commands.Context):
 @bot.command(name="sprint")
 @commands.has_permissions(manage_messages=True)
 async def cmd_sprint(ctx: commands.Context):
-    """!sprint — trigger the weekly 7-day sprint summary (owner only)."""
-    await ctx.reply("Generating weekly sprint report...")
+    """!sprint — trigger the weekly 7-day sprint summary."""
+    await ctx.reply("Generating weekly sprint report…")
     try:
         await _run_weekly()
         await ctx.reply("Sprint report complete.")
@@ -188,7 +403,7 @@ async def cmd_sprint(ctx: commands.Context):
 
 @bot.command(name="tasks")
 async def cmd_tasks(ctx: commands.Context):
-    """!tasks — list all open tasks from sprint_state.json."""
+    """!tasks — list all open tasks."""
     import json
     from pathlib import Path
     state_path = Path(__file__).parent / "state" / "sprint_state.json"
@@ -209,12 +424,12 @@ async def cmd_tasks(ctx: commands.Context):
 
 @bot.command(name="status")
 async def cmd_status(ctx: commands.Context):
-    """!status — confirm the bot is alive and show next scheduled run."""
+    """!status — confirm the bot is alive."""
     await ctx.reply(
-        f"Scrum bot online. Channels resolved:\n"
+        f"Scrum bot online.\n"
         f"  tasks={ch_tasks}\n"
         f"  ai-report={ch_ai_report}\n"
-        f"  changelog={ch_changelog}"
+        f"  sprint-discuss={ch_sprint_discuss}"
     )
 
 

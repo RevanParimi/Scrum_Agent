@@ -159,23 +159,30 @@ def make_task_node(tasks_channel: discord.TextChannel):
         sprint_data = load_sprint_state()
         existing_tasks: list[TaskItem] = sprint_data.get("tasks", [])
 
-        # Extract action items from standup/blockers summary
+        # ── Step 1: Collect confirmed tasks pending their first report ────────
+        # These were confirmed interactively in #sprint-discuss via ✅ reaction.
+        # report_included=False means they haven't appeared in a report yet.
+        confirmed_unreported: list[TaskItem] = [
+            t for t in existing_tasks if not t.get("report_included", True)
+        ]
+
+        # ── Step 2: Extract action items from standup/blockers only ──────────
+        # Sprint-discuss tasks come exclusively from the interactive flow above;
+        # we no longer auto-extract from sprint-discuss to avoid vague tasks.
+        standup_blocker_msgs = {
+            src: msgs
+            for src, msgs in state.get("raw_messages", {}).items()
+            if not src.startswith("sprint-discuss")
+        }
         raw_items = await extract_action_items(
             state.get("summary", ""),
-            state.get("raw_messages", {}),
+            standup_blocker_msgs,
         )
 
-        # Merge subtasks from user stories (PO+SM split from #sprint-discuss)
-        for story in state.get("user_stories", []):
-            for subtask in story.get("subtasks", []):
-                raw_items.append({
-                    "title": subtask.get("title", "Untitled subtask"),
-                    "owner": subtask.get("owner", "unassigned"),
-                })
-
-        new_tasks: list[TaskItem] = []
+        # ── Step 3: Create threads for new standup/blocker action items ───────
+        pipeline_new_tasks: list[TaskItem] = []
         for item in raw_items:
-            task_id = next_task_id(existing_tasks + new_tasks)
+            task_id = next_task_id(existing_tasks + pipeline_new_tasks)
             task: TaskItem = {
                 "id": task_id,
                 "title": item.get("title", "Untitled task"),
@@ -183,20 +190,30 @@ def make_task_node(tasks_channel: discord.TextChannel):
                 "status": "open",
                 "thread_id": None,
                 "created_date": str(date.today()),
+                "report_included": True,  # being added in this report run
             }
 
-            # Create Discord thread
             thread_id = await create_task_thread(tasks_channel, task)
             task["thread_id"] = thread_id
 
-            new_tasks.append(task)
+            pipeline_new_tasks.append(task)
             existing_tasks.append(task)
 
-        # Persist updated task list
+        # ── Step 4: Mark confirmed tasks as reported ──────────────────────────
+        for task in existing_tasks:
+            if not task.get("report_included", True):
+                task["report_included"] = True
+
+        # ── Persist ───────────────────────────────────────────────────────────
         sprint_data["tasks"] = existing_tasks
         save_sprint_state(sprint_data)
 
-        logger.info("Task node complete — %d new tasks created", len(new_tasks))
+        # new_tasks for the report = confirmed interactive tasks + pipeline tasks
+        new_tasks = confirmed_unreported + pipeline_new_tasks
+        logger.info(
+            "Task node complete — %d confirmed + %d pipeline = %d new tasks",
+            len(confirmed_unreported), len(pipeline_new_tasks), len(new_tasks),
+        )
 
         return {
             **state,

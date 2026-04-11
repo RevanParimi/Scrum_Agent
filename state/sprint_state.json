@@ -26,9 +26,11 @@
       "owner": "unassigned",
       "status": "open",
       "thread_id": 1491986611662229646,
-      "created_date": "2026-04-10"
+      "created_date": "2026-04-10",
+      "report_included": true
     }
   ],
   "last_report_date": null,
-  "last_ingested_message_ids": {}
+  "last_ingested_message_ids": {},
+  "pending_confirmations": {}
 }
