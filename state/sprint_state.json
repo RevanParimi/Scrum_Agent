@@ -83,6 +83,62 @@
       "status": "open",
       "thread_id": 1492160740847517697,
       "created_date": "2026-04-10"
+    },
+    {
+      "id": "T9",
+      "title": "Verify alternate signals",
+      "owner": "Siva Sanka",
+      "status": "open",
+      "thread_id": 1492391640357142598,
+      "created_date": "2026-04-11"
+    },
+    {
+      "id": "T10",
+      "title": "Design Agent 01 database schema",
+      "owner": "unassigned",
+      "status": "open",
+      "thread_id": 1492391643440087113,
+      "created_date": "2026-04-11"
+    },
+    {
+      "id": "T11",
+      "title": "Implement NSE/BSE API integration",
+      "owner": "unassigned",
+      "status": "open",
+      "thread_id": 1492391645944090654,
+      "created_date": "2026-04-11"
+    },
+    {
+      "id": "T12",
+      "title": "Integrate AMFI website data",
+      "owner": "unassigned",
+      "status": "open",
+      "thread_id": 1492391648733171783,
+      "created_date": "2026-04-11"
+    },
+    {
+      "id": "T13",
+      "title": "Build broker API connectors",
+      "owner": "unassigned",
+      "status": "open",
+      "thread_id": 1492391652176695372,
+      "created_date": "2026-04-11"
+    },
+    {
+      "id": "T14",
+      "title": "Implement sector weightage logics",
+      "owner": "Akhil",
+      "status": "open",
+      "thread_id": 1492391654550667287,
+      "created_date": "2026-04-11"
+    },
+    {
+      "id": "T15",
+      "title": "Implement optimistic agentic approach",
+      "owner": "Akhil",
+      "status": "open",
+      "thread_id": 1492391657704788040,
+      "created_date": "2026-04-11"
     }
   ],
   "last_report_date": null,
