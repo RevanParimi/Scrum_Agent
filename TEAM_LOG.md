@@ -135,3 +135,45 @@ The team created several new tasks, including verifying alternate signals, desig
 | T15 | Implement optimistic agentic approach | Akhil | open |
 
 ---
+## 2026-04-12
+
+### Summary
+The team created and discussed several new tasks, including T9 to T15, with owners assigned to some of them. The team also had a conversation about sharing chat history and creating public links. Additionally, there was a discussion about uploading files to Discord and the limitations of free models. No significant progress or updates were reported on the tasks.
+
+### Blockers
+- Unassigned tasks T10, T11, T12, and T13 lack owners, potentially blocking progress
+
+### New Tasks Created
+| ID | Title | Owner | Status |
+|----|-------|-------|--------|
+| T16 | Implement NSE/BSE API | unassigned | open |
+| T17 | Integrate AMFI website data | unassigned | open |
+| T18 | Build broker API connectors | unassigned | open |
+| T19 | Implement sector weightage logic | Akhil | open |
+| T20 | Implement optimistic approach | Akhil | open |
+
+### Open Task Board
+| ID | Title | Owner | Status |
+|----|-------|-------|--------|
+| T1 | Ignore alternate signals | unassigned | open |
+| T2 | Verify alternate signals | Siva Sanka | open |
+| T3 | Ignore alternate signals | unassigned | open |
+| T4 | Verify alternate signals | Siva Sanka | open |
+| T5 | Design Agent 01 database schema | unassigned | open |
+| T6 | Implement NSE/BSE API integration | unassigned | open |
+| T7 | Integrate AMFI website data | unassigned | open |
+| T8 | Build broker API connectors | unassigned | open |
+| T9 | Verify alternate signals | Siva Sanka | open |
+| T10 | Design Agent 01 database schema | unassigned | open |
+| T11 | Implement NSE/BSE API integration | unassigned | open |
+| T12 | Integrate AMFI website data | unassigned | open |
+| T13 | Build broker API connectors | unassigned | open |
+| T14 | Implement sector weightage logics | Akhil | open |
+| T15 | Implement optimistic agentic approach | Akhil | open |
+| T16 | Implement NSE/BSE API | unassigned | open |
+| T17 | Integrate AMFI website data | unassigned | open |
+| T18 | Build broker API connectors | unassigned | open |
+| T19 | Implement sector weightage logic | Akhil | open |
+| T20 | Implement optimistic approach | Akhil | open |
+
+---
