@@ -199,6 +199,51 @@
       "thread_id": 1492735207449694248,
       "created_date": "2026-04-12",
       "report_included": true
+    },
+    {
+      "id": "T21",
+      "title": "Implement NSE/BSE API",
+      "owner": "unassigned",
+      "status": "open",
+      "thread_id": 1492759815175409696,
+      "created_date": "2026-04-12",
+      "report_included": true
+    },
+    {
+      "id": "T22",
+      "title": "Integrate AMFI website data",
+      "owner": "unassigned",
+      "status": "open",
+      "thread_id": 1492759817968816178,
+      "created_date": "2026-04-12",
+      "report_included": true
+    },
+    {
+      "id": "T23",
+      "title": "Build broker API connectors",
+      "owner": "unassigned",
+      "status": "open",
+      "thread_id": 1492759820938379354,
+      "created_date": "2026-04-12",
+      "report_included": true
+    },
+    {
+      "id": "T24",
+      "title": "Implement sector weightage logic",
+      "owner": "Akhil",
+      "status": "open",
+      "thread_id": 1492759823123484682,
+      "created_date": "2026-04-12",
+      "report_included": true
+    },
+    {
+      "id": "T25",
+      "title": "Implement optimistic approach",
+      "owner": "Akhil",
+      "status": "open",
+      "thread_id": 1492759825031888993,
+      "created_date": "2026-04-12",
+      "report_included": true
     }
   ],
   "last_report_date": null,
