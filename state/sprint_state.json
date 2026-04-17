@@ -18,17 +18,23 @@
     "agent": {
       "name": "Agent Team",
       "focus": "Agent logic, sector weightage, and agentic optimization",
-      "members": ["Akhil"]
+      "members": [
+        "Akhil"
+      ]
     },
     "infrastructure": {
       "name": "Infrastructure Team",
       "focus": "Database schema, system architecture",
-      "members": ["Prudhvi"]
+      "members": [
+        "Prudhvi"
+      ]
     },
     "research": {
       "name": "Research Team",
       "focus": "Signal verification, market research",
-      "members": ["Siva Sanka"]
+      "members": [
+        "Siva Sanka"
+      ]
     }
   },
   "tasks": [
