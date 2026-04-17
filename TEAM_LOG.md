@@ -409,3 +409,30 @@ No activity in this period.
 | T7 | Implement optimistic agentic approach | Akhil | open |
 
 ---
+## 2026-04-17
+
+### Summary
+The team created multiple tasks for implementing NSE/BSE API integration, designing database schemas, and integrating AMFI website data. Akhil shared weightage logics for 21 sectors and discussed limitations with Claude's free model. The team also discussed sharing chat history and creating public links. No notable progress updates were provided for the tasks.
+
+### Blockers
+- Claude's free model limitations are hindering progress
+- No owners assigned to most tasks
+
+### New Tasks Created
+| ID | Title | Owner | Status |
+|----|-------|-------|--------|
+| T8 | Implement optimistic approach | Akhil | open |
+
+### Open Task Board
+| ID | Title | Owner | Status |
+|----|-------|-------|--------|
+| T1 | Verify alternate signals | Siva Sanka | open |
+| T2 | Design Agent 01 database schema | Prudhvi | open |
+| T3 | Implement NSE/BSE API integration | unassigned | open |
+| T4 | Integrate AMFI website data | unassigned | open |
+| T5 | Build broker API connectors | unassigned | open |
+| T6 | Implement sector weightage logic | Akhil | open |
+| T7 | Implement optimistic agentic approach | Akhil | open |
+| T8 | Implement optimistic approach | Akhil | open |
+
+---
