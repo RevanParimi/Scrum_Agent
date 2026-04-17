@@ -1,39 +1,45 @@
 """
 task_manager.py — LangGraph Node 3
 
-Uses Claude to detect action items from the summary + raw messages.
-Creates new task threads in the #tasks Discord channel.
-Persists task state to state/sprint_state.json.
+Extracts action items from standup/blockers, deduplicates against the existing
+task list, then PROPOSES new tasks in #sprint-discuss for team-lead confirmation
+instead of auto-creating them. Confirmed tasks are created in #tasks.
 """
 
 import json
 import logging
 import os
+import re
 
 from datetime import date
 from pathlib import Path
 from typing import Optional
 
 import discord
-#from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from pipeline.schema import ScrumState, TaskItem
+from pipeline.teams import get_team_for_member, get_team_for_task_title
 
 logger = logging.getLogger(__name__)
 
 STATE_PATH = Path(__file__).parent.parent / "state" / "sprint_state.json"
-MODEL = "claude-haiku-4-5-20251001"   # fast + cheap for task extraction
-MAX_TOKENS = 1024
-
 
 # ── Persistence ───────────────────────────────────────────────────────────────
 
 def load_sprint_state() -> dict:
     if STATE_PATH.exists():
         return json.loads(STATE_PATH.read_text(encoding="utf-8"))
-    return {"sprint_number": 1, "tasks": [], "last_report_date": None,
-            "sprint_start": None, "sprint_end": None, "last_ingested_message_ids": {}}
+    return {
+        "sprint_number": 1,
+        "tasks": [],
+        "last_report_date": None,
+        "sprint_start": None,
+        "sprint_end": None,
+        "last_ingested_message_ids": {},
+        "pending_confirmations": {},
+        "pending_proposals": [],
+    }
 
 
 def save_sprint_state(data: dict) -> None:
@@ -52,17 +58,57 @@ def next_task_id(existing_tasks: list[dict]) -> str:
     return f"T{max(nums, default=0) + 1}"
 
 
-# ── Task extraction via Claude ─────────────────────────────────────────────────
+# ── Deduplication ─────────────────────────────────────────────────────────────
+
+def _normalize(text: str) -> str:
+    """Lowercase, strip punctuation, collapse whitespace for fuzzy comparison."""
+    text = text.lower()
+    text = re.sub(r"[^a-z0-9\s]", "", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def is_duplicate_task(title: str, existing_tasks: list[dict]) -> bool:
+    """
+    Return True if a task with a semantically identical title already exists.
+    Uses normalized string equality — good enough for typical task titles.
+    """
+    norm_new = _normalize(title)
+    for task in existing_tasks:
+        norm_existing = _normalize(task.get("title", ""))
+        if norm_new == norm_existing:
+            return True
+        # Catch very high overlap (one is a substring of the other, long enough)
+        if len(norm_new) > 10 and (norm_new in norm_existing or norm_existing in norm_new):
+            return True
+    return False
+
+
+def deduplicate_task_list(tasks: list[dict]) -> list[dict]:
+    """
+    Remove duplicate tasks from a list, keeping the first occurrence.
+    Used during cleanup operations.
+    """
+    seen: list[str] = []
+    result: list[dict] = []
+    for task in tasks:
+        norm = _normalize(task.get("title", ""))
+        if norm not in seen:
+            seen.append(norm)
+            result.append(task)
+    return result
+
+
+# ── Task extraction via Groq ───────────────────────────────────────────────────
 
 async def extract_action_items(summary: str, raw_messages: dict[str, list[str]]) -> list[dict]:
     """
-    Ask Claude Haiku to pull action items out of the summary.
-    Returns a list of {title, owner} dicts.
+    Ask Groq LLaMA to pull action items out of the summary.
+    Returns a list of {title, owner} dicts — does NOT create tasks yet.
     """
     recent_snippets = []
     for _, msgs in raw_messages.items():
-        recent_snippets.extend(msgs[-5:])   # last 5 msgs per source
-    snippets_text = "\n".join(recent_snippets[-40:])  # cap at 40 lines
+        recent_snippets.extend(msgs[-5:])
+    snippets_text = "\n".join(recent_snippets[-40:])
 
     prompt = f"""You are a scrum master extracting tasks from standup and blocker messages.
 
@@ -89,17 +135,8 @@ Respond ONLY with a valid JSON array:
 Return [] if nothing clearly qualifies.
 """
 
-    #llm = ChatAnthropic(
-    #    model=MODEL,
-    #    max_tokens=MAX_TOKENS,
-    #    anthropic_api_key=os.environ["ANTHROPIC_API_KEY"],
-   # )
     from langchain_groq import ChatGroq
-    llm = ChatGroq(
-        model="llama-3.3-70b-versatile", 
-        api_key=os.environ["GROQ_API_KEY"]
-    )
-
+    llm = ChatGroq(model="llama-3.3-70b-versatile", api_key=os.environ["GROQ_API_KEY"])
 
     response = await llm.ainvoke([
         SystemMessage(content="You extract structured data. Respond only with valid JSON."),
@@ -112,32 +149,31 @@ Return [] if nothing clearly qualifies.
         if start != -1 and end > start:
             return json.loads(response.content[start:end])
     except json.JSONDecodeError:
-        logger.warning("Failed to parse task JSON from Claude")
+        logger.warning("Failed to parse task JSON from LLM")
 
     return []
 
 
-# ── Discord thread creation ────────────────────────────────────────────────────
+# ── Discord helpers ────────────────────────────────────────────────────────────
 
 async def create_task_thread(
     tasks_channel: discord.TextChannel,
     task: TaskItem,
 ) -> Optional[int]:
-    """
-    Post a task card message in #tasks and create a thread on it.
-    Returns the thread ID or None on failure.
-    """
+    """Post a task card in #tasks and create a thread. Returns thread ID or None."""
     try:
         owner_mention = f"`{task['owner']}`" if task['owner'] != "unassigned" else "unassigned"
+        team_label = task.get("team", "unassigned")
         body = (
             f"**{task['id']} — {task['title']}**\n"
-            f"Owner: {owner_mention}  |  Status: `{task['status']}`  |  Created: {task['created_date']}"
+            f"Team: `{team_label}`  |  Owner: {owner_mention}  |  "
+            f"Status: `{task['status']}`  |  Created: {task['created_date']}"
         )
         msg = await tasks_channel.send(body)
         thread = await msg.create_thread(name=f"{task['id']} {task['title'][:40]}")
         await thread.send(
             f"Task **{task['id']}** opened. Drop progress updates here.\n"
-            f"Owner: {owner_mention} — mark done by replying `done` or updating status."
+            f"Owner: {owner_mention} — reply `done` when complete."
         )
         logger.info("Created task thread %s: %s", task["id"], task["title"])
         return thread.id
@@ -146,29 +182,69 @@ async def create_task_thread(
         return None
 
 
+async def post_task_proposals(
+    sprint_discuss_channel: discord.TextChannel,
+    proposed: list[dict],
+) -> None:
+    """
+    Post a batch proposal message to #sprint-discuss listing all new candidate
+    tasks. Team leads reply with ✅ task_id to confirm or ❌ task_id to reject.
+    Confirmed tasks are created by the bot's reaction/message handler.
+    """
+    if not proposed:
+        return
+
+    lines = [
+        "**📋 New task proposals from today's standup — please confirm or reject:**",
+        "",
+    ]
+    for item in proposed:
+        lines.append(
+            f"• **[{item['proposal_id']}]** {item['title']}  "
+            f"_(owner: {item['owner']}, team: {item['team']})_"
+        )
+
+    lines += [
+        "",
+        "Reply `✅ P1` to confirm, `❌ P1` to reject (use the proposal ID, not task ID).",
+        "Unconfirmed proposals expire after 24 hours.",
+    ]
+
+    try:
+        await sprint_discuss_channel.send("\n".join(lines))
+        logger.info("Posted %d task proposals to #sprint-discuss", len(proposed))
+    except discord.HTTPException as exc:
+        logger.error("Failed to post task proposals: %s", exc)
+
+
 # ── LangGraph node factory ─────────────────────────────────────────────────────
 
-def make_task_node(tasks_channel: discord.TextChannel):
+def make_task_node(
+    tasks_channel: discord.TextChannel,
+    sprint_discuss_channel: Optional[discord.TextChannel] = None,
+):
     """
-    Factory that binds the #tasks Discord channel to the LangGraph node.
+    Factory that binds Discord channels to the LangGraph node.
 
-    Usage:
-        graph.add_node("tasks", make_task_node(tasks_channel))
+    New behaviour:
+    1. Load existing tasks.
+    2. Collect already-confirmed interactive tasks (report_included=False).
+    3. Extract candidate tasks from standup/blockers.
+    4. Deduplicate against existing tasks.
+    5. If sprint_discuss_channel is set → post proposals there for confirmation.
+       Otherwise (legacy mode) → create tasks immediately.
+    6. Save state and return.
     """
     async def task_node(state: ScrumState) -> ScrumState:
         sprint_data = load_sprint_state()
         existing_tasks: list[TaskItem] = sprint_data.get("tasks", [])
 
-        # ── Step 1: Collect confirmed tasks pending their first report ────────
-        # These were confirmed interactively in #sprint-discuss via ✅ reaction.
-        # report_included=False means they haven't appeared in a report yet.
+        # Step 1: Collect confirmed-but-unreported interactive tasks
         confirmed_unreported: list[TaskItem] = [
             t for t in existing_tasks if not t.get("report_included", True)
         ]
 
-        # ── Step 2: Extract action items from standup/blockers only ──────────
-        # Sprint-discuss tasks come exclusively from the interactive flow above;
-        # we no longer auto-extract from sprint-discuss to avoid vague tasks.
+        # Step 2: Extract candidate tasks from standup/blockers only
         standup_blocker_msgs = {
             src: msgs
             for src, msgs in state.get("raw_messages", {}).items()
@@ -179,46 +255,81 @@ def make_task_node(tasks_channel: discord.TextChannel):
             standup_blocker_msgs,
         )
 
-        # ── Step 3: Create threads for new standup/blocker action items ───────
+        # Step 3: Deduplicate — skip anything already tracked
+        novel_items = [
+            item for item in raw_items
+            if not is_duplicate_task(item.get("title", ""), existing_tasks)
+        ]
+        logger.info(
+            "Extracted %d candidates, %d after dedup (existing: %d)",
+            len(raw_items), len(novel_items), len(existing_tasks),
+        )
+
+        # Step 4: Either propose or create directly
         pipeline_new_tasks: list[TaskItem] = []
-        for item in raw_items:
-            task_id = next_task_id(existing_tasks + pipeline_new_tasks)
-            task: TaskItem = {
-                "id": task_id,
-                "title": item.get("title", "Untitled task"),
-                "owner": item.get("owner", "unassigned"),
-                "status": "open",
-                "thread_id": None,
-                "created_date": str(date.today()),
-                "report_included": True,  # being added in this report run
-            }
 
-            thread_id = await create_task_thread(tasks_channel, task)
-            task["thread_id"] = thread_id
+        if sprint_discuss_channel and novel_items:
+            # Proposal mode — post to sprint-discuss, do NOT create threads yet
+            existing_proposals = sprint_data.get("pending_proposals", [])
+            next_proposal_num = max(
+                (int(p["proposal_id"][1:]) for p in existing_proposals if p["proposal_id"].startswith("P")),
+                default=0,
+            ) + 1
 
-            pipeline_new_tasks.append(task)
-            existing_tasks.append(task)
+            new_proposals = []
+            for i, item in enumerate(novel_items):
+                team = get_team_for_task_title(item.get("title", ""))
+                if item.get("owner", "unassigned") != "unassigned":
+                    team = get_team_for_member(item["owner"]) or team
+                proposal = {
+                    "proposal_id": f"P{next_proposal_num + i}",
+                    "title": item.get("title", "Untitled"),
+                    "owner": item.get("owner", "unassigned"),
+                    "team": team,
+                    "proposed_date": str(date.today()),
+                }
+                new_proposals.append(proposal)
 
-        # ── Step 4: Mark confirmed tasks as reported ──────────────────────────
+            sprint_data["pending_proposals"] = existing_proposals + new_proposals
+            save_sprint_state(sprint_data)
+            await post_task_proposals(sprint_discuss_channel, new_proposals)
+
+        else:
+            # Legacy / fallback mode — create tasks immediately (no sprint-discuss channel)
+            for item in novel_items:
+                task_id = next_task_id(existing_tasks + pipeline_new_tasks)
+                team = get_team_for_task_title(item.get("title", ""))
+                if item.get("owner", "unassigned") != "unassigned":
+                    team = get_team_for_member(item["owner"]) or team
+                task: TaskItem = {
+                    "id": task_id,
+                    "title": item.get("title", "Untitled task"),
+                    "owner": item.get("owner", "unassigned"),
+                    "team": team,
+                    "status": "open",
+                    "thread_id": None,
+                    "created_date": str(date.today()),
+                    "report_included": True,
+                }
+                thread_id = await create_task_thread(tasks_channel, task)
+                task["thread_id"] = thread_id
+                pipeline_new_tasks.append(task)
+                existing_tasks.append(task)
+
+        # Step 5: Mark confirmed interactive tasks as reported
         for task in existing_tasks:
             if not task.get("report_included", True):
                 task["report_included"] = True
 
-        # ── Persist ───────────────────────────────────────────────────────────
         sprint_data["tasks"] = existing_tasks
         save_sprint_state(sprint_data)
 
-        # new_tasks for the report = confirmed interactive tasks + pipeline tasks
         new_tasks = confirmed_unreported + pipeline_new_tasks
         logger.info(
-            "Task node complete — %d confirmed + %d pipeline = %d new tasks",
+            "Task node complete — %d confirmed + %d pipeline = %d new tasks total",
             len(confirmed_unreported), len(pipeline_new_tasks), len(new_tasks),
         )
 
-        return {
-            **state,
-            "tasks": existing_tasks,
-            "new_tasks": new_tasks,
-        }
+        return {**state, "tasks": existing_tasks, "new_tasks": new_tasks}
 
     return task_node

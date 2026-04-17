@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Scrum Agent — Sprint {{ sprint_number }}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<div class="layout">
+
+  <!-- Sidebar -->
+  <nav class="sidebar">
+    <div class="logo">🤖 Scrum Agent</div>
+
+    <h2>Sprint {{ sprint_number }}</h2>
+    <a href="#overview">📊 Overview</a>
+    <a href="#teams">🏗️ Teams & Tasks</a>
+    {% if proposals %}
+    <a href="#proposals" style="color: var(--warn);">⏳ Proposals ({{ proposals|length }})</a>
+    {% endif %}
+    <a href="#log">📋 Team Log</a>
+
+    <h2>Teams</h2>
+    {% for key, team in teams.items() %}
+    <a href="{{ url_for('team_view', team_key=key) }}">
+      {{ team.emoji }} {{ team.name }}
+    </a>
+    {% endfor %}
+  </nav>
+
+  <!-- Main content -->
+  <main class="main">
+
+    <!-- Header -->
+    <div style="margin-bottom: 28px;">
+      <h1 style="font-size: 22px; font-weight: 700;">Sprint {{ sprint_number }} Dashboard</h1>
+      <p style="color: var(--muted); font-size: 13px; margin-top: 4px;">
+        {{ sprint_start }} → {{ sprint_end }}
+      </p>
+    </div>
+
+    <!-- Stats -->
+    <a name="overview"></a>
+    <div class="stats">
+      <div class="stat open">
+        <div class="val">{{ open_count }}</div>
+        <div class="label">Open</div>
+      </div>
+      <div class="stat done">
+        <div class="val">{{ done_count }}</div>
+        <div class="label">Done</div>
+      </div>
+      <div class="stat danger">
+        <div class="val">{{ blocked_count }}</div>
+        <div class="label">Blocked</div>
+      </div>
+      <div class="stat warn">
+        <div class="val">{{ unassigned_cnt }}</div>
+        <div class="label">Unassigned</div>
+      </div>
+      {% if proposals %}
+      <div class="stat warn">
+        <div class="val">{{ proposals|length }}</div>
+        <div class="label">Proposals</div>
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- Teams & Tasks -->
+    <a name="teams"></a>
+    {% for team_key, team_info in teams.items() %}
+    {% set team_tasks = by_team.get(team_key, []) %}
+    <div class="card">
+      <div class="team-header">
+        <span class="team-emoji">{{ team_info.emoji }}</span>
+        <div>
+          <div class="team-title">{{ team_info.name }}</div>
+          <div class="team-focus">{{ team_info.focus }}</div>
+          {% if team_info.members %}
+          <div class="team-members">👥 {{ team_info.members | join(', ') }}</div>
+          {% endif %}
+        </div>
+        <div style="margin-left: auto; text-align: right;">
+          <span style="font-size: 13px; color: var(--muted);">
+            {{ team_tasks | length }} task(s)
+          </span>
+          <br>
+          <a href="{{ url_for('team_view', team_key=team_key) }}" style="font-size: 12px;">View →</a>
+        </div>
+      </div>
+
+      {% if team_tasks %}
+      <table class="task-table">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Title</th>
+            <th>Owner</th>
+            <th>Status</th>
+            <th>Created</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for task in team_tasks %}
+          <tr>
+            <td style="font-weight: 600; color: var(--muted);">{{ task.id }}</td>
+            <td>{{ task.title }}</td>
+            <td>
+              {% if task.owner == 'unassigned' %}
+              <span style="color: var(--muted);">unassigned</span>
+              {% else %}
+              {{ task.owner }}
+              {% endif %}
+            </td>
+            <td><span class="badge {{ task.status }}">{{ task.status }}</span></td>
+            <td style="color: var(--muted);">{{ task.created_date }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p style="color: var(--muted); font-size: 13px; padding: 8px 0;">No tasks assigned to this team yet.</p>
+      {% endif %}
+    </div>
+    {% endfor %}
+
+    <!-- Unassigned team tasks -->
+    {% if by_team.get('unassigned') %}
+    <div class="card">
+      <h2>📌 Unteamed Tasks</h2>
+      <table class="task-table">
+        <thead>
+          <tr><th>ID</th><th>Title</th><th>Owner</th><th>Status</th></tr>
+        </thead>
+        <tbody>
+          {% for task in by_team['unassigned'] %}
+          <tr>
+            <td style="font-weight: 600;">{{ task.id }}</td>
+            <td>{{ task.title }}</td>
+            <td>{{ task.owner }}</td>
+            <td><span class="badge {{ task.status }}">{{ task.status }}</span></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+
+    <!-- Pending proposals -->
+    {% if proposals %}
+    <a name="proposals"></a>
+    <div class="card">
+      <h2>⏳ Pending Proposals — Awaiting Team-Lead Confirmation</h2>
+      <p style="font-size: 12px; color: var(--muted); margin-bottom: 14px;">
+        Reply <code style="background:rgba(255,255,255,.08); padding:1px 5px; border-radius:4px;">✅ Px</code> to confirm or
+        <code style="background:rgba(255,255,255,.08); padding:1px 5px; border-radius:4px;">❌ Px</code> to reject in #sprint-discuss.
+      </p>
+      {% for p in proposals %}
+      <div class="proposal-row">
+        <span class="proposal-id">{{ p.proposal_id }}</span>
+        <span class="proposal-title">{{ p.title }}</span>
+        <span class="badge {{ p.get('team', 'unassigned') }}">{{ p.get('team', '?') }}</span>
+        <span class="proposal-meta">{{ p.owner }} · {{ p.proposed_date }}</span>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    <!-- Team Log -->
+    <a name="log"></a>
+    <div class="card">
+      <h2>📋 Team Log</h2>
+      <div class="team-log">
+        {{ log_html | safe }}
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script>
+// Simple tab switching (reused for future tabs)
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const group = btn.dataset.group;
+    document.querySelectorAll(`[data-group="${group}"]`).forEach(b => b.classList.remove('active'));
+    document.querySelectorAll(`[data-target^="${group}"]`).forEach(t => t.classList.remove('active'));
+    btn.classList.add('active');
+    document.querySelector(`[data-target="${btn.dataset.tab}"]`)?.classList.add('active');
+  });
+});
+</script>
+</body>
+</html>

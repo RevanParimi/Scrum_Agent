@@ -5,18 +5,19 @@ Responsibilities:
   1. Connect to Discord via Gateway (always-on websocket)
   2. Resolve channel objects from env config
   3. Start APScheduler once bot is ready
-  4. Handle on-demand !report and !sprint commands
+  4. Handle on-demand !report, !sprint, !tasks, !status, !cleanup-tasks commands
   5. Auto-create threads in #sprint-discuss on new topic messages
   6. Participate in sprint-discuss as a conversational scrum master:
        - Read thread history before deciding how to respond
        - Ask clarifying questions, propose tasks, answer questions
-       - Confirm task creation through natural conversation
+       - Confirm / reject task proposals posted by the pipeline (✅ Px / ❌ Px)
        - Extract tasks from shared text files
 """
 
 import asyncio
 import logging
 import os
+import re
 import sys
 from datetime import date
 from typing import Optional
@@ -32,6 +33,7 @@ from pipeline.task_manager import (
     save_sprint_state,
     next_task_id,
     create_task_thread,
+    deduplicate_task_list,
 )
 from scheduler import create_scheduler
 
@@ -45,7 +47,6 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger("scrum-bot")
-
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
@@ -61,7 +62,6 @@ CHANNEL_IDS = {
     "changelog":      int(os.environ.get("CHANNEL_CHANGELOG",      0)),
 }
 
-# Text file extensions the bot will read from attachments
 READABLE_EXTENSIONS = {
     ".txt", ".md", ".py", ".js", ".ts", ".json", ".csv",
     ".yaml", ".yml", ".log", ".xml", ".html", ".sh", ".toml",
@@ -75,7 +75,6 @@ STATUS_TRIGGERS: dict[str, list[str]] = {
     "open":        ["reopen", "reopened", "not done", "reverted"],
 }
 
-
 # ── Bot setup ─────────────────────────────────────────────────────────────────
 
 intents = discord.Intents.default()
@@ -85,7 +84,6 @@ intents.guild_messages = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# Resolved at on_ready
 guild_ref: Optional[discord.Guild]               = None
 ch_tasks: Optional[discord.TextChannel]          = None
 ch_ai_report: Optional[discord.TextChannel]      = None
@@ -93,8 +91,7 @@ ch_changelog: Optional[discord.TextChannel]      = None
 ch_sprint_discuss: Optional[discord.TextChannel] = None
 
 # Pending task confirmations keyed by channel/thread ID.
-# Stored as: { channel_id: {"task_title": str, "task_owner": str} }
-# Persisted in sprint_state.json so they survive bot restarts.
+# { channel_id: {"task_title": str, "task_owner": str} }
 pending_confirmations: dict[int, dict] = {}
 
 
@@ -135,16 +132,11 @@ async def fetch_thread_history(
     exclude_message_id: int,
     limit: int = 15,
 ) -> list[str]:
-    """
-    Fetch recent messages from a channel/thread for context, excluding the
-    current message. Returns formatted strings oldest-first.
-    """
     history = []
     async for msg in channel.history(limit=limit + 1, oldest_first=False):
         if msg.id == exclude_message_id:
             continue
         name = "🤖 Scrum Bot" if msg.author.bot else msg.author.display_name
-        # Include attachment filenames in history so agent knows files were shared
         attachment_note = ""
         if msg.attachments:
             names = ", ".join(a.filename for a in msg.attachments)
@@ -155,7 +147,6 @@ async def fetch_thread_history(
 
 
 async def extract_attachment_text(message: discord.Message) -> Optional[str]:
-    """Download and decode the first readable text attachment, if any."""
     for attachment in message.attachments:
         suffix = "." + attachment.filename.rsplit(".", 1)[-1].lower() if "." in attachment.filename else ""
         if suffix in READABLE_EXTENSIONS:
@@ -170,7 +161,7 @@ async def extract_attachment_text(message: discord.Message) -> Optional[str]:
 
 
 def _detect_status(text: str) -> Optional[str]:
-    """Return a new status string if the message contains a status keyword, else None."""
+    """Return a new status if the message contains a status keyword, else None."""
     lowered = text.lower()
     for status, keywords in STATUS_TRIGGERS.items():
         if any(kw in lowered for kw in keywords):
@@ -180,45 +171,44 @@ def _detect_status(text: str) -> Optional[str]:
 
 async def _handle_task_thread(message: discord.Message) -> None:
     """
-    Watches messages in #tasks threads.
-    If a team member posts a status keyword (done/blocked/wip/reopen),
-    updates sprint_state.json and edits the original task card message.
+    Watches messages posted in #tasks threads.
+    Updates task status in sprint_state.json and edits the task card if changed.
     """
     new_status = _detect_status(message.content)
     if not new_status:
         return
 
-    thread = message.channel  # discord.Thread
+    thread = message.channel
     sprint_data = load_sprint_state()
     tasks = sprint_data.get("tasks", [])
 
-    # Find the task by thread_id
     task = next((t for t in tasks if t.get("thread_id") == thread.id), None)
     if not task:
         return
 
     old_status = task.get("status", "open")
     if old_status == new_status:
-        return  # no change needed
+        return
 
     task["status"] = new_status
     sprint_data["tasks"] = tasks
     save_sprint_state(sprint_data)
     logger.info("Task %s status: %s → %s", task["id"], old_status, new_status)
 
-    # Edit the original task card message (thread.id == card message.id in Discord)
+    # Edit the task card message in #tasks
     try:
         card_msg = await ch_tasks.fetch_message(thread.id)
         owner_display = f"`{task['owner']}`" if task["owner"] != "unassigned" else "unassigned"
+        team_label = task.get("team", "unassigned")
         updated_body = (
             f"**{task['id']} — {task['title']}**\n"
-            f"Owner: {owner_display}  |  Status: `{new_status}`  |  Created: {task['created_date']}"
+            f"Team: `{team_label}`  |  Owner: {owner_display}  |  "
+            f"Status: `{new_status}`  |  Created: {task['created_date']}"
         )
         await card_msg.edit(content=updated_body)
     except discord.HTTPException as exc:
         logger.warning("Could not edit task card for %s: %s", task["id"], exc)
 
-    # Acknowledge in the thread
     status_emoji = {"done": "✅", "blocked": "🚫", "in_progress": "⚙️", "open": "🔁"}
     emoji = status_emoji.get(new_status, "📌")
     await message.reply(
@@ -227,10 +217,6 @@ async def _handle_task_thread(message: discord.Message) -> None:
 
 
 async def create_confirmed_task(confirmation: dict, channel: discord.abc.Messageable) -> str:
-    """
-    Create a task thread from a confirmed task dict and save it to sprint state.
-    Returns the new task ID.
-    """
     sprint_data = load_sprint_state()
     existing = sprint_data.get("tasks", [])
 
@@ -239,6 +225,7 @@ async def create_confirmed_task(confirmation: dict, channel: discord.abc.Message
         "id": task_id,
         "title": confirmation["task_title"],
         "owner": confirmation["task_owner"],
+        "team": confirmation.get("task_team", "data"),
         "status": "open",
         "thread_id": None,
         "created_date": str(date.today()),
@@ -257,6 +244,66 @@ async def create_confirmed_task(confirmation: dict, channel: discord.abc.Message
     return task_id
 
 
+# ── Pipeline proposal confirmation (✅ Px / ❌ Px) ────────────────────────────
+
+_CONFIRM_RE = re.compile(r"^[✅✓y][\s]*(P\d+)", re.IGNORECASE)
+_REJECT_RE  = re.compile(r"^[❌✗xn][\s]*(P\d+)", re.IGNORECASE)
+
+
+async def _handle_proposal_reply(message: discord.Message) -> bool:
+    """
+    Check if this message is confirming/rejecting a pipeline task proposal.
+    Returns True if the message was handled here (prevents double-processing).
+    """
+    confirm_match = _CONFIRM_RE.match(message.content.strip())
+    reject_match  = _REJECT_RE.match(message.content.strip())
+
+    if not confirm_match and not reject_match:
+        return False
+
+    proposal_id = (confirm_match or reject_match).group(1).upper()
+    sprint_data = load_sprint_state()
+    proposals   = sprint_data.get("pending_proposals", [])
+
+    target = next((p for p in proposals if p["proposal_id"] == proposal_id), None)
+    if not target:
+        await message.reply(f"No pending proposal **{proposal_id}** found.")
+        return True
+
+    if confirm_match:
+        # Create the task
+        task_id = next_task_id(sprint_data.get("tasks", []))
+        task = {
+            "id": task_id,
+            "title": target["title"],
+            "owner": target["owner"],
+            "team": target.get("team", "data"),
+            "status": "open",
+            "thread_id": None,
+            "created_date": str(date.today()),
+            "report_included": False,
+        }
+        if ch_tasks:
+            thread_id = await create_task_thread(ch_tasks, task)
+            task["thread_id"] = thread_id
+        sprint_data.setdefault("tasks", []).append(task)
+        sprint_data["pending_proposals"] = [p for p in proposals if p["proposal_id"] != proposal_id]
+        save_sprint_state(sprint_data)
+        await message.reply(
+            f"✅ **{task_id}** created: _{target['title']}_ "
+            f"(team: `{target.get('team','data')}`, owner: `{target['owner']}`). "
+            f"Thread opened in <#{CHANNEL_IDS.get('tasks', 0)}>."
+        )
+        logger.info("Proposal %s confirmed → task %s", proposal_id, task_id)
+    else:
+        sprint_data["pending_proposals"] = [p for p in proposals if p["proposal_id"] != proposal_id]
+        save_sprint_state(sprint_data)
+        await message.reply(f"❌ Proposal **{proposal_id}** rejected — will not create _{target['title']}_.")
+        logger.info("Proposal %s rejected by %s", proposal_id, message.author.display_name)
+
+    return True
+
+
 # ── Pipeline helpers ───────────────────────────────────────────────────────────
 
 async def _run_daily():
@@ -264,7 +311,7 @@ async def _run_daily():
         logger.error("Bot not ready — skipping daily pipeline")
         return
     try:
-        await run_daily_pipeline(guild_ref, ch_tasks, ch_ai_report, ch_changelog)
+        await run_daily_pipeline(guild_ref, ch_tasks, ch_ai_report, ch_changelog, ch_sprint_discuss)
     except Exception as exc:
         logger.exception("Daily pipeline failed: %s", exc)
 
@@ -297,9 +344,15 @@ async def on_ready():
     ch_sprint_discuss = get_channel("sprint-discuss")
 
     logger.info("Logged in as %s | Guild: %s", bot.user, guild_ref.name)
-    logger.info("  #tasks         → %s", ch_tasks)
-    logger.info("  #ai-report     → %s", ch_ai_report)
-    logger.info("  #sprint-discuss→ %s", ch_sprint_discuss)
+    logger.info("  #tasks          → %s", ch_tasks)
+    logger.info("  #ai-report      → %s", ch_ai_report)
+    logger.info("  #sprint-discuss → %s", ch_sprint_discuss)
+
+    if not ch_sprint_discuss:
+        logger.warning(
+            "⚠️  #sprint-discuss channel NOT found. "
+            "Set CHANNEL_SPRINT_DISCUSS env var or ensure the channel name matches."
+        )
 
     _load_pending_confirmations()
 
@@ -313,7 +366,7 @@ async def on_message(message: discord.Message):
     if message.author.bot:
         return
 
-    # ── Determine if this is a sprint-discuss message ────────────────────────
+    # Determine if this is a sprint-discuss message or a thread inside it
     is_sprint_discuss = False
     if ch_sprint_discuss:
         if message.channel.id == ch_sprint_discuss.id:
@@ -323,8 +376,15 @@ async def on_message(message: discord.Message):
             and message.channel.parent_id == ch_sprint_discuss.id
         ):
             is_sprint_discuss = True
+    else:
+        # Fallback: match by channel name if ID lookup failed
+        ch_name = getattr(message.channel, "name", "") or getattr(
+            getattr(message.channel, "parent", None), "name", ""
+        )
+        if ch_name == "sprint-discuss":
+            is_sprint_discuss = True
 
-    # ── Auto-thread for main-channel messages ─────────────────────────────────
+    # Auto-thread main-channel messages
     if is_sprint_discuss and not isinstance(message.channel, discord.Thread) and len(message.content) >= 20:
         try:
             thread_name = message.content[:50].strip().replace("\n", " ")
@@ -333,11 +393,14 @@ async def on_message(message: discord.Message):
         except discord.HTTPException as exc:
             logger.warning("Failed to create auto-thread: %s", exc)
 
-    # ── Conversational agent ──────────────────────────────────────────────────
+    # Handle sprint-discuss conversational agent + proposal replies
     if is_sprint_discuss:
-        asyncio.create_task(_handle_sprint_discuss(message))
+        # Check for pipeline proposal confirmations first (✅ Px / ❌ Px)
+        handled = await _handle_proposal_reply(message)
+        if not handled:
+            asyncio.create_task(_handle_sprint_discuss(message))
 
-    # ── Task thread status updates ────────────────────────────────────────────
+    # Task thread status updates
     if (
         ch_tasks
         and isinstance(message.channel, discord.Thread)
@@ -349,19 +412,13 @@ async def on_message(message: discord.Message):
 
 
 async def _handle_sprint_discuss(message: discord.Message) -> None:
-    """
-    Core conversational loop for #sprint-discuss.
-    Fetches thread context, runs the agent, and acts on the result.
-    """
     channel_id = message.channel.id
 
-    # 1. Build context
-    thread_history   = await fetch_thread_history(message.channel, exclude_message_id=message.id)
-    attachment_text  = await extract_attachment_text(message)
-    sprint_data      = load_sprint_state()
-    pending          = pending_confirmations.get(channel_id)
+    thread_history  = await fetch_thread_history(message.channel, exclude_message_id=message.id)
+    attachment_text = await extract_attachment_text(message)
+    sprint_data     = load_sprint_state()
+    pending         = pending_confirmations.get(channel_id)
 
-    # 2. Run agent
     result = await run_thread_agent(
         message_content=message.content,
         author=message.author.display_name,
@@ -371,16 +428,18 @@ async def _handle_sprint_discuss(message: discord.Message) -> None:
         attachment_text=attachment_text,
     )
 
-    action  = result.get("action", "silent")
-    reply   = result.get("message", "").strip()
+    action = result.get("action", "silent")
+    reply  = result.get("message", "").strip()
 
-    # 3. Handle each action ────────────────────────────────────────────────────
+    logger.info(
+        "sprint-discuss agent | author=%s | action=%s | channel=%s",
+        message.author.display_name, action, message.channel.id,
+    )
 
     if action == "silent":
         return
 
     elif action == "propose_task":
-        # Bot asks the team: "Should I track this as a task?"
         if not reply:
             return
         try:
@@ -394,7 +453,6 @@ async def _handle_sprint_discuss(message: discord.Message) -> None:
             logger.warning("Failed to post task proposal: %s", exc)
 
     elif action == "ask_clarification":
-        # Bot asks a clarifying question — no pending state change
         if reply:
             try:
                 await message.reply(reply)
@@ -402,13 +460,11 @@ async def _handle_sprint_discuss(message: discord.Message) -> None:
                 logger.warning("Failed to post clarification: %s", exc)
 
     elif action == "confirm_task":
-        # Team said yes — create the task
         if pending:
             try:
                 task_id = await create_confirmed_task(pending, message.channel)
                 del pending_confirmations[channel_id]
                 _save_pending_confirmations()
-
                 owner_display = (
                     f"`{pending['task_owner']}`"
                     if pending["task_owner"] != "unassigned"
@@ -423,11 +479,9 @@ async def _handle_sprint_discuss(message: discord.Message) -> None:
             except Exception as exc:
                 logger.exception("Failed to create confirmed task: %s", exc)
         else:
-            # No pending — agent misread; stay silent
             logger.debug("confirm_task action with no pending confirmation — ignored")
 
     elif action == "reject_task":
-        # Team said no — clear the pending and acknowledge briefly
         if pending:
             del pending_confirmations[channel_id]
             _save_pending_confirmations()
@@ -476,34 +530,80 @@ async def cmd_sprint(ctx: commands.Context):
 
 @bot.command(name="tasks")
 async def cmd_tasks(ctx: commands.Context):
-    """!tasks — list all open tasks."""
-    import json
-    from pathlib import Path
-    state_path = Path(__file__).parent / "state" / "sprint_state.json"
-    try:
-        data = json.loads(state_path.read_text(encoding="utf-8"))
-        open_tasks = [t for t in data.get("tasks", []) if t.get("status") != "done"]
-        if not open_tasks:
-            await ctx.reply("No open tasks.")
-            return
-        lines = ["**Open Tasks**", "```"]
-        for t in open_tasks:
+    """!tasks — list all open tasks grouped by team."""
+    data = load_sprint_state()
+    open_tasks = [t for t in data.get("tasks", []) if t.get("status") != "done"]
+    if not open_tasks:
+        await ctx.reply("No open tasks.")
+        return
+
+    # Group by team
+    by_team: dict[str, list] = {}
+    for t in open_tasks:
+        team = t.get("team", "unassigned")
+        by_team.setdefault(team, []).append(t)
+
+    lines = ["**Open Tasks by Team**"]
+    for team, tasks in sorted(by_team.items()):
+        lines.append(f"\n**{team.upper()}**")
+        lines.append("```")
+        for t in tasks:
             lines.append(f"{t['id']:4s}  {t['status']:12s}  {t['owner']:15s}  {t['title']}")
         lines.append("```")
-        await ctx.reply("\n".join(lines))
-    except Exception as exc:
-        await ctx.reply(f"Could not load tasks: {exc}")
+
+    # Proposals pending confirmation
+    proposals = data.get("pending_proposals", [])
+    if proposals:
+        lines.append(f"\n**Pending Proposals** ({len(proposals)} awaiting confirmation in #sprint-discuss)")
+        lines.append("```")
+        for p in proposals:
+            lines.append(f"{p['proposal_id']:4s}  {p['team']:12s}  {p['owner']:15s}  {p['title']}")
+        lines.append("```")
+        lines.append("Reply `✅ Px` to confirm or `❌ Px` to reject in #sprint-discuss.")
+
+    await ctx.reply("\n".join(lines))
 
 
 @bot.command(name="status")
 async def cmd_status(ctx: commands.Context):
-    """!status — confirm the bot is alive."""
+    """!status — confirm the bot is alive and show channel bindings."""
+    sprint_data = load_sprint_state()
+    open_count  = sum(1 for t in sprint_data.get("tasks", []) if t.get("status") != "done")
+    proposal_count = len(sprint_data.get("pending_proposals", []))
     await ctx.reply(
-        f"Scrum bot online.\n"
-        f"  tasks={ch_tasks}\n"
-        f"  ai-report={ch_ai_report}\n"
-        f"  sprint-discuss={ch_sprint_discuss}"
+        f"Scrum bot online — Sprint {sprint_data.get('sprint_number', '?')}\n"
+        f"  #tasks         = {ch_tasks}\n"
+        f"  #ai-report     = {ch_ai_report}\n"
+        f"  #sprint-discuss= {ch_sprint_discuss}\n"
+        f"  open tasks     = {open_count}\n"
+        f"  pending proposals = {proposal_count}"
     )
+
+
+@bot.command(name="cleanup-tasks")
+@commands.has_permissions(manage_messages=True)
+async def cmd_cleanup_tasks(ctx: commands.Context):
+    """!cleanup-tasks — deduplicate tasks in state and post a summary."""
+    sprint_data = load_sprint_state()
+    before = len(sprint_data.get("tasks", []))
+    sprint_data["tasks"] = deduplicate_task_list(sprint_data.get("tasks", []))
+    after = len(sprint_data["tasks"])
+    save_sprint_state(sprint_data)
+
+    removed = before - after
+    lines = [
+        f"✅ Task cleanup complete.",
+        f"  Before: {before} tasks",
+        f"  After : {after} tasks",
+        f"  Removed: {removed} duplicates",
+        "",
+        "**Current canonical tasks:**",
+        "```",
+    ]
+    for t in sprint_data["tasks"]:
+        lines.append(f"{t['id']:4s}  [{t.get('team','?'):14s}]  {t['owner']:15s}  {t['title']}")
+    lines.append("```")
+    await ctx.reply("\n".join(lines))
 
 
 # ── Entrypoint ────────────────────────────────────────────────────────────────

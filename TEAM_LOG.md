@@ -365,3 +365,30 @@ No activity in this period.
 | T25 | Implement optimistic approach | Akhil | open |
 
 ---
+## 2026-04-17 — Sprint Reset & Deduplication
+
+### Summary
+Task board was reset. 25 accumulated duplicate tasks (T1–T25) were collapsed into 7 canonical tasks across 4 module teams. The bot now uses a propose-first flow: new tasks are proposed in #sprint-discuss for team-lead confirmation before being created in #tasks. A web dashboard is now available at `http://localhost:5050`.
+
+### Actions Taken
+- Removed 18 duplicate tasks (same titles extracted across multiple pipeline runs)
+- Removed "Ignore alternate signals" which was a decision, not a work item
+- Assigned team modules to all tasks (Data / Agent / Infrastructure / Research)
+- Fixed pipeline: deduplication now runs before any task is created
+- Fixed pipeline: new tasks are proposed to #sprint-discuss first, not auto-created
+- Fixed bot: added `!cleanup-tasks` command for future cleanup
+- Added web dashboard at `ui/app.py` (run with `python ui/app.py`)
+
+### Canonical Task Board (Sprint 3)
+
+| ID | Title | Team | Owner | Status |
+|----|-------|------|-------|--------|
+| T1 | Verify alternate signals | Research | Siva Sanka | open |
+| T2 | Design Agent 01 database schema | Infrastructure | Prudhvi | open |
+| T3 | Implement NSE/BSE API integration | Data | unassigned | open |
+| T4 | Integrate AMFI website data | Data | unassigned | open |
+| T5 | Build broker API connectors | Data | unassigned | open |
+| T6 | Implement sector weightage logic | Agent | Akhil | open |
+| T7 | Implement optimistic agentic approach | Agent | Akhil | open |
+
+---

@@ -1,329 +1,243 @@
-# Discord Scrum Master Bot
+# Scrum Agent v2
 
-An AI-powered Discord bot that acts as an automated Scrum Master. It monitors team conversations, synthesises daily stand-ups, extracts action items, tracks blockers, and generates reports — all without human intervention.
+AI-augmented Scrum Master that lives in Discord — summarises standups, tracks tasks per module team, flags blockers, and surfaces a web dashboard with the full sprint log.
 
----
-
-## How It Works
-
-The bot runs a **5-node LangGraph pipeline** triggered on a schedule or on demand:
-
-```
-ingest → summarize → story_splitter → task_manager → report_writer → END
-```
-
-| Node | File | What it does |
-|---|---|---|
-| **ingest** | `pipeline/ingest.py` | Fetches recent messages from watched Discord channels and their active threads |
-| **summarize** | `pipeline/summarize.py` | Sends raw messages to Claude (Sonnet) and extracts `summary`, `decisions`, `blockers` as JSON |
-| **story_splitter** | `pipeline/story_splitter.py` | Reads `#sprint-discuss` threads; acts as PO (writes user stories + acceptance criteria) and SM (breaks each story into subtasks) |
-| **task_manager** | `pipeline/task_manager.py` | Merges story subtasks with standup action items, creates Discord task threads, persists to `state/sprint_state.json` |
-| **report_writer** | `pipeline/report_writer.py` | Builds a Markdown report, appends to `TEAM_LOG.md`, commits + pushes via Git, posts to Discord |
+Built on a **Python-first architecture**: discord.py + LangGraph for the bot and AI pipeline, Flask for the web UI.
 
 ---
 
-## Project Structure
+## Architecture at a glance
 
 ```
-discord-scrum-master/
-├── bot.py                   # Entry point — Discord client, commands, events
-├── scheduler.py             # APScheduler cron definitions
-├── requirements.txt         # Python dependencies
-├── .env.example             # Environment variable template
-├── railway.toml             # Railway.app deployment config
-├── TEAM_LOG.md              # Auto-generated daily reports (git-tracked)
-│
-├── pipeline/
-│   ├── __init__.py
-│   ├── graph.py             # LangGraph assembly and pipeline runners
-│   ├── schema.py            # ScrumState, TaskItem, UserStory TypedDicts
-│   ├── ingest.py            # Node 1: fetch Discord messages
-│   ├── summarize.py         # Node 2: Claude summarization
-│   ├── story_splitter.py    # Node 3: PO+SM story splitting from #sprint-discuss
-│   ├── task_manager.py      # Node 4: task extraction + thread creation
-│   └── report_writer.py     # Node 5: report generation + Git + Discord
-│
-├── prompts/
-│   ├── scrum_master.md      # System prompt for summarization
-│   └── story_splitter.md    # System prompt for PO+SM story splitting
-│
-└── state/
-    └── sprint_state.json    # Persistent task + sprint state (JSON file)
+Discord Server
+      │
+      ▼
+┌──────────────────────────────────┐
+│   bot.py  (discord.py)            │  Slash commands, auto-thread,
+│                                   │  proposal confirm/reject flow
+└──────────────┬───────────────────┘
+               │
+               ▼
+┌──────────────────────────────────┐
+│   Python AI Pipeline (LangGraph)  │
+│                                   │
+│   ingest → summarize →            │
+│   task_manager → report_writer    │
+│                                   │
+│   pipeline/teams.py               │  4 module teams
+│   pipeline/thread_agent.py        │  Conversational SM agent
+└──────────────┬───────────────────┘
+               │
+               ▼
+┌──────────────────────────────────┐
+│   state/sprint_state.json         │  Tasks, proposals, sprint meta
+│   TEAM_LOG.md                     │  Auto-generated daily log
+└──────────────────────────────────┘
+               │
+               ▼
+┌──────────────────────────────────┐
+│   ui/app.py  (Flask)              │  Web dashboard → localhost:5050
+└──────────────────────────────────┘
 ```
+
+Full design → [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+Dev guide   → [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md)
 
 ---
 
-## Tech Stack
+## Module Teams
 
-| Layer | Technology |
-|---|---|
-| Discord SDK | discord.py 2.3.2 |
-| AI orchestration | LangGraph 0.2.28 |
-| AI framework | LangChain (langchain-core 0.3.15) |
-| AI models | Claude via langchain-anthropic 0.2.4 |
-| Scheduling | APScheduler 3.10.4 |
-| Git automation | GitPython 3.1.43 |
-| Async file I/O | aiofiles 23.2.1 |
-| Config | python-dotenv 1.0.1 |
-| Deployment | Railway.app |
+Tasks are grouped into four teams. The bot routes new tasks to the correct team automatically based on title keywords.
+
+| Team | Emoji | Focus | Members |
+|------|-------|-------|---------|
+| **Data** | 📊 | Market data ingestion, NSE/BSE API, broker connectors | *unassigned* |
+| **Agent** | 🤖 | Agent logic, sector weightage, agentic optimization | Akhil |
+| **Infrastructure** | 🏗️ | Database schema, system architecture | Prudhvi |
+| **Research** | 🔬 | Signal verification, strategy | Siva Sanka |
+
+Team definitions live in [`pipeline/teams.py`](pipeline/teams.py) — update members there.
 
 ---
 
-## Setup
+## Quick start
 
-### 1. Install dependencies
+### Prerequisites
+
+| Tool | Version |
+|------|---------|
+| Python | ≥ 3.10 |
+
+### 1 — Install
 
 ```bash
+git clone https://github.com/RevanParimi/Scrum_Agent.git
+cd Scrum_Agent
+
 pip install -r requirements.txt
 ```
 
-### 2. Configure environment
-
-Copy `.env.example` to `.env` and fill in all values:
-
-```env
-# Discord
-DISCORD_TOKEN=          # Bot token from Discord Developer Portal
-DISCORD_GUILD_ID=       # Your server's Guild ID (integer)
-
-# Channel IDs (integer) — bot reads from and writes to these
-CHANNEL_SPRINT_DISCUSS= # Main discussion channel (auto-threads new topics)
-CHANNEL_STANDUP=        # Daily standups
-CHANNEL_TASKS=          # Task board (bot creates threads here)
-CHANNEL_BLOCKERS=       # Blocker reporting
-CHANNEL_AI_REPORT=      # Where reports are posted
-CHANNEL_CHANGELOG=      # Where summaries are posted
-
-# Anthropic
-ANTHROPIC_API_KEY=      # sk-ant-... key
-
-# Config
-TEAM_LOG_REPO_PATH=.    # Repo path for TEAM_LOG.md commits (default: current dir)
-TIMEZONE=Asia/Kolkata   # Scheduler timezone (IANA format)
-```
-
-### 3. Discord bot permissions required
-
-In the [Discord Developer Portal](https://discord.com/developers/applications) → your app → **OAuth2 → URL Generator**:
-
-- Scopes: `bot`
-- Bot Permissions to check:
-  - **General:** View Channels
-  - **Text:** Send Messages, Create Public Threads, Send Messages in Threads, Manage Messages, Manage Threads, Embed Links, Read Message History
-
-Also under **Bot → Privileged Gateway Intents**, enable:
-- **Message Content Intent** (required to read message text)
-
-Generate the invite URL and open it in a browser to add the bot to your server.
-
-> `Attach Files` is **not** needed — the bot only sends text. Add it later if you introduce file exports.
-
-### 4. Verify Guild ID
-
-After adding the bot to your server, confirm `DISCORD_GUILD_ID` in `.env` matches the correct server:
-
-- Discord → right-click your **server icon** → **Copy Server ID**
-- Requires **Developer Mode** enabled: Settings → Advanced → Developer Mode
-
-If the bot starts but logs `Guild not found`, this is the cause.
-
-### 5. Run
+### 2 — Environment variables
 
 ```bash
+cp .env.example .env
+# Edit .env — all required fields are marked below
+```
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `DISCORD_TOKEN` | ✅ | Bot token from Discord Developer Portal |
+| `DISCORD_GUILD_ID` | ✅ | Server ID (Developer Mode → right-click server) |
+| `GROQ_API_KEY` | ✅ | From [console.groq.com](https://console.groq.com) |
+| `CHANNEL_SPRINT_DISCUSS` | ✅ | ID of `#sprint-discuss` channel |
+| `CHANNEL_STANDUP` | ✅ | ID of `#standup` channel |
+| `CHANNEL_TASKS` | ✅ | ID of `#tasks` channel |
+| `CHANNEL_BLOCKERS` | ✅ | ID of `#blockers` channel |
+| `CHANNEL_AI_REPORT` | ✅ | ID of `#ai-report` channel |
+| `CHANNEL_CHANGELOG` | ✅ | ID of `#changelog` channel |
+| `TIMEZONE` | Optional | Default `Asia/Kolkata` |
+
+### 3 — Run
+
+```bash
+# Terminal 1 — Discord bot
 python bot.py
-```
 
-Expected startup output:
-```
-Logged in as YourBot#1234 | Guild: YourServerName
-  #tasks       → <TextChannel id=... name='tasks'>
-  #ai-report   → <TextChannel id=... name='ai-report'>
-  #changelog   → <TextChannel id=... name='changelog'>
-APScheduler started
-```
-
-If any channel shows as `None`, the corresponding `CHANNEL_*` ID in `.env` is wrong or unset.
-
----
-
-## Bot Commands
-
-| Command | Permission | Description |
-|---|---|---|
-| `!report` | manage_messages | Trigger an immediate daily digest |
-| `!sprint` | manage_messages | Trigger the weekly 7-day sprint summary |
-| `!tasks` | everyone | List all open tasks from `sprint_state.json` |
-| `!status` | everyone | Confirm bot is alive and show resolved channels |
-
----
-
-## Automated Schedule
-
-| Time | Action |
-|---|---|
-| Daily at 9:00 AM (configurable timezone) | Runs `run_daily_pipeline` — fetches last 24 hours |
-| Friday at 6:00 PM | Runs `run_sprint_report` — fetches last 7 days |
-
-Schedule is defined in `scheduler.py` using APScheduler's `AsyncIOScheduler`.
-
----
-
-## Data Models
-
-### `ScrumState` (shared pipeline state)
-
-```python
-class ScrumState(TypedDict):
-    raw_messages: dict[str, list[str]]  # {"channel/thread": ["msg1", ...]}
-    fetch_since_hours: int
-
-    summary: str
-    decisions: list[str]
-    blockers: list[str]
-
-    user_stories: list[UserStory]       # stories extracted from #sprint-discuss
-
-    tasks: list[TaskItem]               # cumulative sprint tasks
-    new_tasks: list[TaskItem]           # tasks created this run
-
-    report_md: str                      # full Markdown for TEAM_LOG.md
-    report_date: str                    # ISO date string
-```
-
-### `UserStory`
-
-```python
-class UserStory(TypedDict):
-    title: str               # "As a [user], I can [action] so that [value]"
-    source: str              # "sprint-discuss/<thread-name>"
-    acceptance_criteria: list[str]
-    subtasks: list[dict]     # [{"title": str, "owner": str}]
-```
-
-### `TaskItem`
-
-```python
-class TaskItem(TypedDict):
-    id: str               # "T1", "T2", etc.
-    title: str            # ≤10 words, imperative form
-    owner: str            # Discord username or "unassigned"
-    status: str           # "open" | "in_progress" | "blocked" | "done"
-    thread_id: int | None # Discord thread ID
-    created_date: str     # ISO date
-```
-
-### `state/sprint_state.json` (persisted to disk)
-
-```json
-{
-  "sprint_number": 1,
-  "sprint_start": null,
-  "sprint_end": null,
-  "tasks": [],
-  "last_report_date": "YYYY-MM-DD",
-  "last_ingested_message_ids": {}
-}
+# Terminal 2 — Web dashboard (http://localhost:5050)
+python ui/app.py
 ```
 
 ---
 
-## AI Configuration
+## Bot commands
 
-Two Claude models and one Groq model are used depending on the task:
-
-| Node | Model | Reason |
-|---|---|---|
-| `summarize.py` | `claude-sonnet-4-6` | Full analysis, nuanced reasoning |
-| `story_splitter.py` | `llama-3.3-70b-versatile` (Groq) | Fast PO+SM story extraction |
-| `task_manager.py` | `llama-3.3-70b-versatile` (Groq) | Fast, cheap action item extraction |
-
-`summarize.py` uses `ChatAnthropic` from `langchain-anthropic`. `story_splitter.py` and `task_manager.py` use `ChatGroq` from `langchain-groq`.
-
-System prompts: `prompts/scrum_master.md` (summarization), `prompts/story_splitter.md` (PO+SM splitting).
-
-Token limits: 2048 max tokens for summarization and story splitting, 1024 for task extraction.
-Context cap: raw messages are truncated at 60,000 characters before being sent to the model.
+| Command | Who | Description |
+|---------|-----|-------------|
+| `!report` | manage_messages | Trigger immediate daily scrum digest |
+| `!sprint` | manage_messages | Trigger 7-day weekly sprint summary |
+| `!tasks` | Everyone | List open tasks grouped by team |
+| `!status` | Everyone | Bot health + channel bindings |
+| `!cleanup-tasks` | manage_messages | Deduplicate the task list and print canonical tasks |
 
 ---
 
-## Key Architectural Patterns
+## How tasks are created (propose-first flow)
 
-1. **Factory nodes** — `ingest.py`, `task_manager.py`, and `report_writer.py` expose `make_*_node()` factory functions that close over Discord channel objects resolved at bot startup. This decouples pipeline logic from Discord state.
+```
+Daily pipeline runs (9 AM)
+         │
+         ▼
+Extract candidate tasks from #standup / #blockers
+         │
+         ▼
+Deduplicate — skip anything already tracked
+         │
+         ▼
+Post proposals to #sprint-discuss:
+  "📋 New task proposals — please confirm:
+     • [P1] Implement NSE/BSE API (owner: unassigned, team: data)
+     Reply ✅ P1 to confirm, ❌ P1 to reject."
+         │
+         ▼
+Team lead replies ✅ P1 → task thread created in #tasks
+Team lead replies ❌ P1 → proposal discarded
+```
 
-2. **LangGraph state machine** — `pipeline/graph.py` assembles nodes into a directed graph. State flows through all nodes and is accumulated (not replaced) at each step.
-
-3. **File-backed persistence** — `sprint_state.json` is a plain JSON file. There is no database. All reads and writes go through this file.
-
-4. **Git-backed report log** — `TEAM_LOG.md` is committed and pushed by the bot after each pipeline run using GitPython.
-
-5. **JSON resilience** — Claude's output is parsed with a fallback. If the response is not valid JSON, the node falls back gracefully rather than crashing the pipeline.
-
----
-
-## Requirements for New Features
-
-Before adding any new feature, read and understand these constraints:
-
-### Environment
-- All new environment variables must be added to `.env.example` with a comment.
-- Always use `os.environ.get("VAR", default)` for optional config. Use `os.environ["VAR"]` only for required values (it will raise on startup if missing — this is intentional).
-
-### Pipeline nodes
-- Every pipeline node must be a function with signature `async def node(state: ScrumState) -> ScrumState` (or a partial thereof via a factory).
-- Nodes must not have side effects outside of: (a) writing to `ScrumState`, (b) calling the Discord API, (c) calling the Claude API, (d) writing to `sprint_state.json` or `TEAM_LOG.md`.
-- Register new nodes in `pipeline/graph.py`.
-
-### State changes
-- New fields on `ScrumState` go in `pipeline/schema.py`. Add them to both the `TypedDict` class and the `empty_state()` factory.
-- New fields on `TaskItem` also go in `pipeline/schema.py`.
-
-### Discord channel access
-- All channel objects must be resolved in `bot.py:on_ready()` and passed into pipeline functions — never fetched inside pipeline nodes.
-- New channels need a corresponding `CHANNEL_*` env var and a `get_channel("name")` call in `on_ready`.
-
-### AI prompts
-- If a new node requires a system prompt, add it as a `.md` file in `prompts/`.
-- Do not hardcode prompts as inline strings inside node files.
-- Choose the right model: Haiku for fast/cheap extraction, Sonnet for reasoning-heavy tasks.
-
-### Scheduling
-- New scheduled jobs go in `scheduler.py`. Use `AsyncIOScheduler` and pass async callbacks.
-- Timezone is always read from `TIMEZONE` env var — never hardcode a timezone.
-
-### Persistence
-- The only persistence layer is `state/sprint_state.json`. Use `json.loads` / `json.dumps` with `encoding="utf-8"`.
-- Do not introduce a database without explicit discussion — the file-based approach is intentional for simplicity and Railway compatibility.
-
-### Commands
-- New bot commands use the `@bot.command` decorator with `@commands.has_permissions(...)` where appropriate.
-- Commands that trigger the pipeline should call the existing `_run_daily()` or `_run_weekly()` helpers in `bot.py`, or a new equivalent helper — not the pipeline directly.
-
-### Error handling
-- All pipeline nodes must catch exceptions and log them. Non-fatal errors (Git push failure, Discord post failure) must not crash the pipeline.
-- Fatal errors (channel not resolved, missing required env var) should prevent the bot from starting, not fail silently at runtime.
-
-### Testing locally
-- Run `python bot.py` directly. There is no test suite — test manually against a real Discord server.
-- You will need a real `DISCORD_TOKEN` and a real guild. There is no mock/stub mode.
+The conversational agent in `#sprint-discuss` also proposes individual tasks in real-time when a team member commits to specific work.
 
 ---
 
-## Deployment (Railway)
+## How the bot works in `#sprint-discuss`
 
-The `railway.toml` configures:
-- Builder: NIXPACKS
-- Start command: `python bot.py`
-- Auto-restart on failure (5 retries)
-
-Set all `.env` values as Railway environment variables in the Railway dashboard. Do not commit `.env`.
+```
+New message in #sprint-discuss
+         │
+         ├── Main channel + len ≥ 20?  ──▶  Auto-create thread
+         │
+         ├── Starts with ✅/❌ Px?  ──▶  Confirm/reject pipeline proposal
+         │
+         └── Run Groq thread agent
+                    │
+                    ├── "propose_task"      Bot asks: "Track this?"
+                    ├── "confirm_task"      Yes → task in state + thread in #tasks
+                    ├── "reject_task"       No  → pending cleared
+                    ├── "ask_clarification" Bot asks one focused question
+                    ├── "answer_question"   Bot answers sprint status questions
+                    ├── "note_decision"     Bot acknowledges a team decision
+                    └── "silent"            Bot stays quiet (most messages)
+```
 
 ---
 
-## Files Never to Commit
+## Web dashboard
 
-`.gitignore` excludes:
-- `.env`
-- `venv/`, `__pycache__/`
-- `*.pyc`
+Run `python ui/app.py` and open [http://localhost:5050](http://localhost:5050).
 
-`TEAM_LOG.md` and `state/sprint_state.json` **are** committed by the bot itself automatically. Do not add them to `.gitignore`.
+Shows:
+- Sprint stats (open / done / blocked / unassigned)
+- Tasks grouped by module team with status badges
+- Pending proposals awaiting team-lead confirmation
+- Full TEAM_LOG.md rendered as HTML
+- Per-team detail pages (`/team/data`, `/team/agent`, etc.)
+
+---
+
+## Project structure
+
+```
+Scrum_Agent/
+│
+├── bot.py                        # Discord bot entry point
+├── scheduler.py                  # APScheduler daily/weekly jobs
+├── run.py                        # Standalone pipeline runner
+│
+├── pipeline/                     # Python AI pipeline (LangGraph)
+│   ├── graph.py                  # LangGraph DAG assembly
+│   ├── ingest.py                 # Discord message ingestion
+│   ├── summarize.py              # LLM summarization (Groq)
+│   ├── task_manager.py           # Task extraction, dedup, proposal flow
+│   ├── thread_agent.py           # Conversational SM agent
+│   ├── task_proposer.py          # Real-time task detection
+│   ├── report_writer.py          # Markdown report + git push
+│   ├── teams.py                  # Module team definitions
+│   ├── schema.py                 # ScrumState TypedDict
+│   └── api.py                    # FastAPI bridge (optional)
+│
+├── ui/                           # Web dashboard
+│   ├── app.py                    # Flask app (port 5050)
+│   ├── templates/
+│   │   ├── dashboard.html        # Main sprint dashboard
+│   │   └── team.html             # Per-team task view
+│   └── static/
+│       └── style.css             # Dark theme stylesheet
+│
+├── state/
+│   └── sprint_state.json         # Runtime task state + proposals
+│
+├── prompts/                      # LLM system prompts
+│   ├── scrum_master.md
+│   └── story_splitter.md
+│
+├── docs/
+│   ├── ARCHITECTURE.md           # System design + data flows
+│   └── CONTRIBUTING.md           # Dev onboarding guide
+│
+├── CHANNELS.md                   # Discord channel reference
+├── TEAM_LOG.md                   # Auto-generated daily sprint log
+├── .env.example                  # Environment template
+└── requirements.txt
+```
+
+---
+
+## Tech stack
+
+| Layer | Technology | Reason |
+|-------|-----------|--------|
+| Bot | Python + discord.py | Direct control, simple async model |
+| LLM | Groq / LLaMA 3.3-70B | Fast, generous free tier |
+| AI pipeline | LangGraph + LangChain | Best AI/ML Python ecosystem |
+| State | JSON file (sprint_state.json) | Zero infra, human-readable |
+| Scheduler | APScheduler | Timezone-aware cron jobs |
+| Web UI | Flask + markdown2 | Lightweight, no build step |
+| Deduplication | Normalized string matching | Prevents duplicate task threads |
