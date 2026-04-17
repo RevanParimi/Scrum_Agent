@@ -1,0 +1,162 @@
+/* Scrum Agent Dashboard — minimal, readable */
+
+:root {
+  --bg:        #0f1117;
+  --surface:   #1a1d27;
+  --border:    #2a2d3a;
+  --accent:    #5865f2;
+  --accent2:   #57f287;
+  --warn:      #fee75c;
+  --danger:    #ed4245;
+  --text:      #e0e2f0;
+  --muted:     #8b8fa8;
+  --radius:    8px;
+  --font:      'Inter', system-ui, sans-serif;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.6;
+  min-height: 100vh;
+}
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* ── Layout ── */
+.layout { display: grid; grid-template-columns: 220px 1fr; min-height: 100vh; }
+
+.sidebar {
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  padding: 24px 16px;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+}
+
+.sidebar h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); margin: 20px 0 8px; }
+.sidebar a {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px; border-radius: var(--radius);
+  color: var(--text); font-size: 13px;
+  transition: background .15s;
+}
+.sidebar a:hover, .sidebar a.active { background: rgba(88,101,242,.2); text-decoration: none; }
+
+.logo {
+  font-size: 16px; font-weight: 700; color: var(--accent);
+  display: flex; align-items: center; gap: 8px; padding: 0 4px;
+}
+
+.main { padding: 32px 40px; max-width: 1100px; }
+
+/* ── Cards ── */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px 24px;
+  margin-bottom: 20px;
+}
+
+.card h2 { font-size: 16px; font-weight: 600; margin-bottom: 16px; }
+.card h3 { font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; margin-bottom: 10px; }
+
+/* ── Stat row ── */
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; margin-bottom: 24px; }
+.stat {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 16px 18px;
+}
+.stat .val { font-size: 28px; font-weight: 700; line-height: 1; }
+.stat .label { font-size: 11px; color: var(--muted); margin-top: 4px; text-transform: uppercase; letter-spacing: .07em; }
+.stat.open  .val { color: var(--accent); }
+.stat.done  .val { color: var(--accent2); }
+.stat.warn  .val { color: var(--warn); }
+.stat.danger .val { color: var(--danger); }
+
+/* ── Task table ── */
+.task-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.task-table th {
+  text-align: left; padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted); font-weight: 500; font-size: 11px; text-transform: uppercase;
+}
+.task-table td { padding: 9px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+.task-table tr:last-child td { border-bottom: none; }
+.task-table tr:hover td { background: rgba(255,255,255,.02); }
+
+/* ── Badges ── */
+.badge {
+  display: inline-block; font-size: 11px; font-weight: 600;
+  padding: 2px 8px; border-radius: 20px; white-space: nowrap;
+}
+.badge.open     { background: rgba(88,101,242,.2); color: #a5adff; }
+.badge.done     { background: rgba(87,242,135,.15); color: var(--accent2); }
+.badge.blocked  { background: rgba(237,66,69,.2); color: #ff8a8a; }
+.badge.in_progress { background: rgba(254,231,92,.15); color: var(--warn); }
+.badge.data     { background: rgba(88,101,242,.15); color: #a5adff; }
+.badge.agent    { background: rgba(87,242,135,.12); color: #57f287; }
+.badge.infrastructure { background: rgba(254,231,92,.12); color: #fee75c; }
+.badge.research { background: rgba(235,69,158,.12); color: #eb459e; }
+.badge.unassigned { background: rgba(255,255,255,.06); color: var(--muted); }
+
+/* ── Team section ── */
+.team-header {
+  display: flex; align-items: center; gap: 10px;
+  margin-bottom: 12px;
+}
+.team-emoji { font-size: 20px; }
+.team-title { font-size: 15px; font-weight: 600; }
+.team-focus { font-size: 12px; color: var(--muted); }
+.team-members { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+/* ── Proposals ── */
+.proposal-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 12px; border-radius: var(--radius);
+  background: rgba(254,231,92,.05); border: 1px solid rgba(254,231,92,.15);
+  margin-bottom: 8px; gap: 12px;
+}
+.proposal-id { font-weight: 700; color: var(--warn); min-width: 36px; }
+.proposal-title { flex: 1; }
+.proposal-meta { font-size: 11px; color: var(--muted); white-space: nowrap; }
+
+/* ── Team Log ── */
+.team-log { font-size: 13px; line-height: 1.7; }
+.team-log h2 { font-size: 17px; font-weight: 700; margin: 28px 0 10px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+.team-log h3 { font-size: 14px; font-weight: 600; margin: 18px 0 6px; color: var(--accent); }
+.team-log table { width: 100%; border-collapse: collapse; margin: 10px 0; }
+.team-log th { background: rgba(255,255,255,.04); padding: 6px 10px; text-align: left; font-size: 11px; color: var(--muted); text-transform: uppercase; }
+.team-log td { padding: 7px 10px; border-bottom: 1px solid var(--border); }
+.team-log tr:last-child td { border-bottom: none; }
+.team-log ul { padding-left: 20px; margin: 4px 0 10px; }
+.team-log li { margin-bottom: 3px; }
+.team-log hr { border: none; border-top: 1px solid var(--border); margin: 24px 0; }
+.team-log code { background: rgba(255,255,255,.07); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+.team-log pre { background: rgba(255,255,255,.04); border-radius: 6px; padding: 12px 16px; overflow-x: auto; margin: 10px 0; }
+
+/* ── Tabs ── */
+.tabs { display: flex; gap: 4px; margin-bottom: 20px; border-bottom: 1px solid var(--border); }
+.tab-btn {
+  padding: 8px 16px; border: none; background: none; color: var(--muted);
+  font-size: 13px; cursor: pointer; border-bottom: 2px solid transparent;
+  margin-bottom: -1px; transition: color .15s, border-color .15s;
+}
+.tab-btn.active { color: var(--text); border-bottom-color: var(--accent); }
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+
+/* ── Responsive ── */
+@media (max-width: 768px) {
+  .layout { grid-template-columns: 1fr; }
+  .sidebar { display: none; }
+  .main { padding: 20px; }
+}

@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ team_info.name }} — Sprint {{ sprint_number }}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<div class="layout">
+  <nav class="sidebar">
+    <div class="logo">🤖 Scrum Agent</div>
+    <h2>Navigation</h2>
+    <a href="{{ url_for('dashboard') }}">← Back to Dashboard</a>
+  </nav>
+
+  <main class="main">
+    <div style="margin-bottom: 28px;">
+      <h1 style="font-size: 22px; font-weight: 700;">
+        {{ team_info.emoji }} {{ team_info.name }}
+      </h1>
+      <p style="color: var(--muted); font-size: 13px; margin-top: 4px;">{{ team_info.focus }}</p>
+      {% if team_info.members %}
+      <p style="color: var(--muted); font-size: 13px; margin-top: 2px;">
+        Members: {{ team_info.members | join(', ') }}
+      </p>
+      {% endif %}
+    </div>
+
+    <div class="stats">
+      <div class="stat open">
+        <div class="val">{{ tasks | selectattr('status', 'ne', 'done') | list | length }}</div>
+        <div class="label">Open</div>
+      </div>
+      <div class="stat done">
+        <div class="val">{{ tasks | selectattr('status', 'equalto', 'done') | list | length }}</div>
+        <div class="label">Done</div>
+      </div>
+      <div class="stat warn">
+        <div class="val">{{ tasks | selectattr('owner', 'equalto', 'unassigned') | list | length }}</div>
+        <div class="label">Unassigned</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Tasks</h2>
+      {% if tasks %}
+      <table class="task-table">
+        <thead>
+          <tr><th>ID</th><th>Title</th><th>Owner</th><th>Status</th><th>Created</th></tr>
+        </thead>
+        <tbody>
+          {% for task in tasks %}
+          <tr>
+            <td style="font-weight: 600; color: var(--muted);">{{ task.id }}</td>
+            <td>{{ task.title }}</td>
+            <td>
+              {% if task.owner == 'unassigned' %}
+              <span style="color: var(--danger);">unassigned ⚠️</span>
+              {% else %}
+              {{ task.owner }}
+              {% endif %}
+            </td>
+            <td><span class="badge {{ task.status }}">{{ task.status }}</span></td>
+            <td style="color: var(--muted);">{{ task.created_date }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p style="color: var(--muted);">No tasks for this team yet.</p>
+      {% endif %}
+    </div>
+  </main>
+</div>
+</body>
+</html>

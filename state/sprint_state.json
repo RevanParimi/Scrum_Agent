@@ -1,0 +1,110 @@
+{
+  "sprint_number": 3,
+  "sprint_start": "2026-04-12",
+  "sprint_end": "2026-04-25",
+  "upcoming_sprints": [
+    {
+      "sprint_number": 4,
+      "sprint_start": "2026-04-26",
+      "sprint_end": "2026-05-02"
+    }
+  ],
+  "teams": {
+    "data": {
+      "name": "Data Team",
+      "focus": "Market data ingestion and broker connectivity",
+      "members": []
+    },
+    "agent": {
+      "name": "Agent Team",
+      "focus": "Agent logic, sector weightage, and agentic optimization",
+      "members": ["Akhil"]
+    },
+    "infrastructure": {
+      "name": "Infrastructure Team",
+      "focus": "Database schema, system architecture",
+      "members": ["Prudhvi"]
+    },
+    "research": {
+      "name": "Research Team",
+      "focus": "Signal verification, market research",
+      "members": ["Siva Sanka"]
+    }
+  },
+  "tasks": [
+    {
+      "id": "T1",
+      "title": "Verify alternate signals",
+      "owner": "Siva Sanka",
+      "team": "research",
+      "status": "open",
+      "thread_id": 1492035688785252434,
+      "created_date": "2026-04-10",
+      "report_included": true
+    },
+    {
+      "id": "T2",
+      "title": "Design Agent 01 database schema",
+      "owner": "Prudhvi",
+      "team": "infrastructure",
+      "status": "open",
+      "thread_id": 1492160728495296576,
+      "created_date": "2026-04-10",
+      "report_included": true
+    },
+    {
+      "id": "T3",
+      "title": "Implement NSE/BSE API integration",
+      "owner": "unassigned",
+      "team": "data",
+      "status": "open",
+      "thread_id": 1492160732232417434,
+      "created_date": "2026-04-10",
+      "report_included": true
+    },
+    {
+      "id": "T4",
+      "title": "Integrate AMFI website data",
+      "owner": "unassigned",
+      "team": "data",
+      "status": "open",
+      "thread_id": 1492160736745623653,
+      "created_date": "2026-04-10",
+      "report_included": true
+    },
+    {
+      "id": "T5",
+      "title": "Build broker API connectors",
+      "owner": "unassigned",
+      "team": "data",
+      "status": "open",
+      "thread_id": 1492160740847517697,
+      "created_date": "2026-04-10",
+      "report_included": true
+    },
+    {
+      "id": "T6",
+      "title": "Implement sector weightage logic",
+      "owner": "Akhil",
+      "team": "agent",
+      "status": "open",
+      "thread_id": 1492391654550667287,
+      "created_date": "2026-04-11",
+      "report_included": true
+    },
+    {
+      "id": "T7",
+      "title": "Implement optimistic agentic approach",
+      "owner": "Akhil",
+      "team": "agent",
+      "status": "open",
+      "thread_id": 1492391657704788040,
+      "created_date": "2026-04-11",
+      "report_included": true
+    }
+  ],
+  "last_report_date": "2026-04-16",
+  "last_ingested_message_ids": {},
+  "pending_confirmations": {},
+  "pending_proposals": []
+}

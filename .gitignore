@@ -1,0 +1,27 @@
+# Environment
+.env
+*.env
+.scrum
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+
+# State (tracked separately — don't overwrite with stale local copy)
+# state/sprint_state.json   ← keep this tracked so Railway persists it
+
+# Logs
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+node_modules

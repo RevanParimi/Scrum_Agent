@@ -1,0 +1,23 @@
+[Unit]
+Description=Discord Scrum Master Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=APP_DIR
+ExecStart=APP_DIR/venv/bin/python bot.py
+Restart=always
+RestartSec=10
+
+# Load environment variables from .env file
+EnvironmentFile=APP_DIR/.env
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=scrum-bot
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,23 @@
+# Discord
+discord.py==2.3.2
+
+# Scheduler
+APScheduler==3.10.4
+
+# Utilities
+python-dotenv==1.0.1
+aiofiles==23.2.1
+gitpython==3.1.43
+PyNaCl==1.6.2
+
+# LangGraph + LangChain
+langchain==0.2.6
+langchain-chroma==0.1.2
+langchain-core==0.2.43
+langchain-groq==0.1.6
+langchain-text-splitters==0.2.4
+langgraph==0.1.14
+
+# Web dashboard
+flask==3.0.3
+markdown2==2.4.13
