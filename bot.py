@@ -67,6 +67,14 @@ READABLE_EXTENSIONS = {
     ".yaml", ".yml", ".log", ".xml", ".html", ".sh", ".toml",
 }
 
+# Keyword → status mapping for task thread updates
+STATUS_TRIGGERS: dict[str, list[str]] = {
+    "done":        ["done", "finished", "completed", "complete", "merged", "shipped", "closed", "fixed"],
+    "blocked":     ["blocked", "blocking", "stuck", "blocker", "can't proceed", "cannot proceed"],
+    "in_progress": ["in progress", "wip", "working on it", "started", "picked up", "in-progress", "taking this"],
+    "open":        ["reopen", "reopened", "not done", "reverted"],
+}
+
 
 # ── Bot setup ─────────────────────────────────────────────────────────────────
 
@@ -159,6 +167,63 @@ async def extract_attachment_text(message: discord.Message) -> Optional[str]:
             except Exception as exc:
                 logger.warning("Could not read attachment %s: %s", attachment.filename, exc)
     return None
+
+
+def _detect_status(text: str) -> Optional[str]:
+    """Return a new status string if the message contains a status keyword, else None."""
+    lowered = text.lower()
+    for status, keywords in STATUS_TRIGGERS.items():
+        if any(kw in lowered for kw in keywords):
+            return status
+    return None
+
+
+async def _handle_task_thread(message: discord.Message) -> None:
+    """
+    Watches messages in #tasks threads.
+    If a team member posts a status keyword (done/blocked/wip/reopen),
+    updates sprint_state.json and edits the original task card message.
+    """
+    new_status = _detect_status(message.content)
+    if not new_status:
+        return
+
+    thread = message.channel  # discord.Thread
+    sprint_data = load_sprint_state()
+    tasks = sprint_data.get("tasks", [])
+
+    # Find the task by thread_id
+    task = next((t for t in tasks if t.get("thread_id") == thread.id), None)
+    if not task:
+        return
+
+    old_status = task.get("status", "open")
+    if old_status == new_status:
+        return  # no change needed
+
+    task["status"] = new_status
+    sprint_data["tasks"] = tasks
+    save_sprint_state(sprint_data)
+    logger.info("Task %s status: %s → %s", task["id"], old_status, new_status)
+
+    # Edit the original task card message (thread.id == card message.id in Discord)
+    try:
+        card_msg = await ch_tasks.fetch_message(thread.id)
+        owner_display = f"`{task['owner']}`" if task["owner"] != "unassigned" else "unassigned"
+        updated_body = (
+            f"**{task['id']} — {task['title']}**\n"
+            f"Owner: {owner_display}  |  Status: `{new_status}`  |  Created: {task['created_date']}"
+        )
+        await card_msg.edit(content=updated_body)
+    except discord.HTTPException as exc:
+        logger.warning("Could not edit task card for %s: %s", task["id"], exc)
+
+    # Acknowledge in the thread
+    status_emoji = {"done": "✅", "blocked": "🚫", "in_progress": "⚙️", "open": "🔁"}
+    emoji = status_emoji.get(new_status, "📌")
+    await message.reply(
+        f"{emoji} Status updated to `{new_status}` for **{task['id']} — {task['title']}**"
+    )
 
 
 async def create_confirmed_task(confirmation: dict, channel: discord.abc.Messageable) -> str:
@@ -271,6 +336,14 @@ async def on_message(message: discord.Message):
     # ── Conversational agent ──────────────────────────────────────────────────
     if is_sprint_discuss:
         asyncio.create_task(_handle_sprint_discuss(message))
+
+    # ── Task thread status updates ────────────────────────────────────────────
+    if (
+        ch_tasks
+        and isinstance(message.channel, discord.Thread)
+        and message.channel.parent_id == ch_tasks.id
+    ):
+        asyncio.create_task(_handle_task_thread(message))
 
     await bot.process_commands(message)
 
