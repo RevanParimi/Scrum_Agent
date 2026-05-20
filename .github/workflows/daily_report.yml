@@ -1,8 +1,8 @@
 name: Scrum Daily Report
 on:
-  schedule:
-    - cron: '30 3 * * *'
-    - cron: '30 12 * * 5'
+  #schedule:
+  #  - cron: '30 3 * * *'
+  #  - cron: '30 12 * * 5'
   workflow_dispatch:
     inputs:
       weekly:
